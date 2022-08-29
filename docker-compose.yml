@@ -1,16 +1,18 @@
-version: '3'
-
+---
+version: "3"
 services:
   cachyos_discord_bot:
+    container_name: cachyos_discord_bot
+    hostname: cachyos_discord_bot
     build:
       context: '.'
       dockerfile: 'Dockerfile'
     env_file: '.env'
-    restart: 'unless-stopped'
     volumes:
       - type: 'volume'
         source: 'cachyos_discord_bot-database'
         target: '/usr/src/app/database'
+    restart: always
 
 volumes:
   cachyos_discord_bot-database:

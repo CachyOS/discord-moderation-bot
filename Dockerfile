@@ -9,7 +9,7 @@ ENV DATABASE_URL=sqlite:database/database.sqlite
 # caching, and it works by copying the Cargo.{toml,lock} with dummy source code
 # and doing a full build with it.
 WORKDIR /cachyos_discord_bot
-COPY Cargo.lock Cargo.toml .
+COPY Cargo.lock Cargo.toml build.rs /cachyos_discord_bot/
 RUN mkdir -p src && \
     echo "fn main() {}" > src/main.rs
 
@@ -20,7 +20,7 @@ RUN cargo build --release
 # build. The touch on all the .rs files is needed, otherwise cargo assumes the
 # source code didn't change thanks to mtime weirdness.
 RUN rm -rf /cachyos_discord_bot/src
-COPY . .
+COPY . /cachyos_discord_bot/
 RUN find src -name "*.rs" -exec touch {} \; && cargo build --release
 
 
@@ -28,7 +28,7 @@ RUN find src -name "*.rs" -exec touch {} \; && cargo build --release
 #  Output image  #
 ##################
 
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 
 ARG APP=/usr/src/app
 

@@ -1,7 +1,9 @@
 *
 **
+!build.rs
 !Cargo.toml
 !Cargo.lock
 !/src
 !/migrations
+!/assets
 !sqlx-data.json
