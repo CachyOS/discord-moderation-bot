@@ -9,8 +9,8 @@ Some permissions are required:
 - Add Reactions: for `?rustify` command feedback
 Furthermore, the `applications.commands` OAuth2 scope is required for slash commands.
 
-Here's an invite link to an instance hosted by me on my Raspberry Pi, with the permissions and scopes incorporated:
-https://discord.com/oauth2/authorize?client_id=804340127433752646&permissions=268445760&scope=bot%20applications.commands
+Here's an sample invite link, with the permissions and scopes incorporated:
+https://discord.com/oauth2/authorize?client_id=EXAMPLE&permissions=268445760&scope=bot%20applications.commands
 
 Adjust the client_id in the URL for your own hosted instances of the bot.
 
