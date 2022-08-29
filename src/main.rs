@@ -22,14 +22,11 @@ async fn acknowledge_fail(error: poise::FrameworkError<'_, Data, Error>) {
 
         match ctx {
             poise::Context::Prefix(ctx) => {
-                if let Err(e) = ctx
-                    .msg
-                    .react(ctx.discord, serenity::ReactionType::from('❌'))
-                    .await
+                if let Err(e) = ctx.msg.react(ctx.discord, serenity::ReactionType::from('❌')).await
                 {
                     log::warn!("Failed to react with red cross: {}", e);
                 }
-            }
+            },
             poise::Context::Application(_) => {
                 if let Err(e) = ctx.say(format!("❌ {}", error)).await {
                     log::warn!(
@@ -37,7 +34,7 @@ async fn acknowledge_fail(error: poise::FrameworkError<'_, Data, Error>) {
                         e
                     );
                 }
-            }
+            },
         }
     } else {
         on_error(error).await;
@@ -56,7 +53,7 @@ or
 code here
 \\`\\`\\`"
                 .to_owned()
-        } else if let Some(multiline_help) = ctx.command().multiline_help {
+        } else if let Some(multiline_help) = ctx.command().help_text {
             format!("**{}**\n{}", error, multiline_help())
         } else {
             error.to_string()
@@ -80,10 +77,10 @@ async fn listener(
     match event {
         poise::Event::MessageUpdate { event, .. } => {
             showcase::try_update_showcase_message(ctx, data, event.id).await?
-        }
-        poise::Event::MessageDelete {
-            deleted_message_id, ..
-        } => showcase::try_delete_showcase_message(ctx, data, *deleted_message_id).await?,
+        },
+        poise::Event::MessageDelete { deleted_message_id, .. } => {
+            showcase::try_delete_showcase_message(ctx, data, *deleted_message_id).await?
+        },
         poise::Event::GuildMemberAddition { new_member } => {
             const RUSTIFICATION_DELAY: u64 = 30; // in minutes
 
@@ -96,14 +93,11 @@ async fn listener(
                     new_member.guild_id.0,
                     new_member.user.id.0,
                     data.rustacean_role.0,
-                    Some(&format!(
-                        "Automatically rustified after {} minutes",
-                        RUSTIFICATION_DELAY
-                    )),
+                    Some(&format!("Automatically rustified after {} minutes", RUSTIFICATION_DELAY)),
                 )
                 .await;
-        }
-        _ => {}
+        },
+        _ => {},
     }
 
     Ok(())
@@ -130,7 +124,8 @@ pub struct Data {
     bot_start_time: std::time::Instant,
     http: reqwest::Client,
     database: sqlx::SqlitePool,
-    godbolt_targets: std::sync::Mutex<godbolt::GodboltTargets>,
+    godbolt_rust_targets: std::sync::Mutex<godbolt::GodboltTargets>,
+    godbolt_cpp_targets: std::sync::Mutex<godbolt::GodboltTargets>,
     active_slowmodes:
         std::sync::Mutex<std::collections::HashMap<serenity::ChannelId, ActiveSlowmode>>,
 }
@@ -165,15 +160,16 @@ async fn app() -> Result<(), Error> {
             playground::fmt(),
             playground::microbench(),
             playground::procmacro(),
+            godbolt::play_cpp(),
             godbolt::godbolt(),
             godbolt::mca(),
             godbolt::llvmir(),
             godbolt::asmdiff(),
-            godbolt::targets(),
+            godbolt::targets_rust(),
+            godbolt::targets_cpp(),
             crates::crate_(),
             crates::doc(),
             moderation::cleanup(),
-            moderation::ban(),
             moderation::move_(),
             moderation::slowmode(),
             showcase::showcase(),
@@ -185,23 +181,27 @@ async fn app() -> Result<(), Error> {
             misc::servers(),
             misc::revision(),
             misc::conradluget(),
+            misc::nicosay(),
         ],
         prefix_options: poise::PrefixFrameworkOptions {
             prefix: Some("?".into()),
             additional_prefixes: vec![
+                poise::Prefix::Literal("cachyos_bot "),
                 poise::Prefix::Literal("🦀 "),
                 poise::Prefix::Literal("🦀"),
                 poise::Prefix::Literal("<:ferris:358652670585733120> "),
                 poise::Prefix::Literal("<:ferris:358652670585733120>"),
+                poise::Prefix::Literal("<:ferris:1013555299271061574> "),
+                poise::Prefix::Literal("<:ferris:1013555299271061574>"),
+                poise::Prefix::Literal("<@1013555299271061574> "),
+                poise::Prefix::Literal("<@1013555299271061574>"),
                 poise::Prefix::Regex(
-                    "(yo|hey) (crab|ferris|fewwis),? can you (please |pwease )?"
-                        .parse()
-                        .unwrap(),
+                    "(yo|hey) (crab|ferris|fewwis),? can you (please |pwease )?".parse().unwrap(),
                 ),
             ],
-            edit_tracker: Some(poise::EditTracker::for_timespan(
-                std::time::Duration::from_secs(3600 * 24 * 2),
-            )),
+            edit_tracker: Some(poise::EditTracker::for_timespan(std::time::Duration::from_secs(
+                3600 * 24 * 2,
+            ))),
             stripped_dynamic_prefix: if custom_prefixes {
                 Some(|ctx, msg, data| Box::pin(prefixes::try_strip_prefix(ctx, msg, data)))
             } else {
@@ -221,7 +221,7 @@ async fn app() -> Result<(), Error> {
                 match ctx {
                     poise::Context::Prefix(ctx) => {
                         log::info!("{} in {}: {}", author, channel_name, &ctx.msg.content);
-                    }
+                    },
                     poise::Context::Application(ctx) => {
                         let command_name = &ctx.interaction.data().name;
 
@@ -231,7 +231,7 @@ async fn app() -> Result<(), Error> {
                             channel_name,
                             command_name
                         );
-                    }
+                    },
                 }
             })
         },
@@ -269,19 +269,16 @@ async fn app() -> Result<(), Error> {
     let database = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(
-            database_url
-                .parse::<sqlx::sqlite::SqliteConnectOptions>()?
-                .create_if_missing(true),
+            database_url.parse::<sqlx::sqlite::SqliteConnectOptions>()?.create_if_missing(true),
         )
         .await?;
     sqlx::migrate!("./migrations").run(&database).await?;
 
-    poise::Framework::build()
+    poise::Framework::builder()
         .token(discord_token)
         .user_data_setup(move |ctx, bot, _framework| {
             Box::pin(async move {
-                ctx.set_activity(serenity::Activity::listening("?help"))
-                    .await;
+                ctx.set_activity(serenity::Activity::listening("?help")).await;
                 Ok(Data {
                     bot_user_id: bot.user.id,
                     mod_role_id,
@@ -291,7 +288,8 @@ async fn app() -> Result<(), Error> {
                     bot_start_time: std::time::Instant::now(),
                     http: reqwest::Client::new(),
                     database,
-                    godbolt_targets: std::sync::Mutex::new(godbolt::GodboltTargets::default()),
+                    godbolt_rust_targets: std::sync::Mutex::new(godbolt::GodboltTargets::default()),
+                    godbolt_cpp_targets: std::sync::Mutex::new(godbolt::GodboltTargets::default()),
                     active_slowmodes: std::sync::Mutex::new(std::collections::HashMap::new()),
                 })
             })
@@ -340,7 +338,7 @@ async fn acknowledge_success(
                 .unwrap_or_else(|| serenity::ReactionType::from(fallback));
 
             ctx.msg.react(ctx.discord, reaction).await?;
-        }
+        },
         Context::Application(_) => {
             let msg_content = match emoji {
                 Some(e) => e.to_string(),
@@ -352,7 +350,7 @@ async fn acknowledge_success(
                 // ignore errors as to not fail if ephemeral
                 let _: Result<_, _> = msg.delete(ctx.discord()).await;
             }
-        }
+        },
     }
     Ok(())
 }
@@ -382,9 +380,8 @@ async fn trim_text(
         };
 
         // This is how long the text body may be at max to conform to Discord's limit
-        let available_space = 2000_usize
-            .saturating_sub(text_end.len())
-            .saturating_sub(truncation_msg.len());
+        let available_space =
+            2000_usize.saturating_sub(text_end.len()).saturating_sub(truncation_msg.len());
 
         let mut cut_off_point = available_space;
         while !text_body.is_char_boundary(cut_off_point) {
@@ -402,22 +399,16 @@ async fn trim_text(
             Err(future) => future.await,
         });
 
-        text_body
-            .lines()
-            .take(MAX_OUTPUT_LINES)
-            .collect::<Vec<_>>()
-            .join("\n")
+        text_body.lines().take(MAX_OUTPUT_LINES).collect::<Vec<_>>().join("\n")
     } else {
         text_body.to_owned()
     };
 
-    let msg = if let Ok(truncation_msg) = truncation_msg_maybe {
+    if let Ok(truncation_msg) = truncation_msg_maybe {
         format!("{}{}{}", text_body, text_end, truncation_msg)
     } else {
         format!("{}{}", text_body, text_end)
-    };
-
-    msg
+    }
 }
 
 async fn reply_potentially_long_text(
@@ -426,8 +417,7 @@ async fn reply_potentially_long_text(
     text_end: &str,
     truncation_msg_future: impl std::future::Future<Output = String>,
 ) -> Result<(), Error> {
-    ctx.say(trim_text(text_body, text_end, truncation_msg_future).await)
-        .await?;
+    ctx.say(trim_text(text_body, text_end, truncation_msg_future).await).await?;
     Ok(())
 }
 

@@ -6,9 +6,7 @@ async fn check_is_moderator(ctx: Context<'_>) -> Result<bool, Error> {
         .discord()
         .http
         .get_member(
-            ctx.guild_id()
-                .ok_or("This command only works inside guilds")?
-                .0,
+            ctx.guild_id().ok_or("This command only works inside guilds")?.0,
             ctx.author().id.0,
         )
         .await?;
@@ -16,22 +14,14 @@ async fn check_is_moderator(ctx: Context<'_>) -> Result<bool, Error> {
     Ok(if author.roles.contains(&ctx.data().mod_role_id) {
         true
     } else {
-        ctx.send(|b| {
-            b.ephemeral(true)
-                .content("This command is only available to moderators")
-        })
-        .await?;
+        ctx.send(|b| b.ephemeral(true).content("This command is only available to moderators"))
+            .await?;
         false
     })
 }
 
 async fn immediately_lift_slowmode(ctx: Context<'_>) -> Result<(), Error> {
-    let active_slowmode = ctx
-        .data()
-        .active_slowmodes
-        .lock()
-        .unwrap()
-        .remove(&ctx.channel_id());
+    let active_slowmode = ctx.data().active_slowmodes.lock().unwrap().remove(&ctx.channel_id());
 
     match active_slowmode {
         Some(active_slowmode) => {
@@ -41,11 +31,10 @@ async fn immediately_lift_slowmode(ctx: Context<'_>) -> Result<(), Error> {
                 })
                 .await?;
             ctx.say("Restored slowmode to previous level").await?;
-        }
+        },
         None => {
-            ctx.say("There is no slowmode command currently running")
-                .await?;
-        }
+            ctx.say("There is no slowmode command currently running").await?;
+        },
     }
 
     Ok(())
@@ -65,7 +54,7 @@ async fn register_slowmode(
         Err(e) => {
             log::warn!("Couldn't retrieve channel slowmode settings: {}", e);
             0
-        }
+        },
     };
 
     let mut active_slowmodes = ctx.data().active_slowmodes.lock().unwrap();
@@ -75,22 +64,16 @@ async fn register_slowmode(
     // is not the original one, so we check the existing entry
     let previous_slowmode_rate =
         already_active_slowmode.map_or(current_slowmode_rate, |s| s.previous_slowmode_rate);
-    let duration = duration_argument
-        .or_else(|| Some(already_active_slowmode?.duration))
-        .unwrap_or(30);
-    let rate = rate_argument
-        .or_else(|| Some(already_active_slowmode?.rate))
-        .unwrap_or(15);
+    let duration =
+        duration_argument.or_else(|| Some(already_active_slowmode?.duration)).unwrap_or(30);
+    let rate = rate_argument.or_else(|| Some(already_active_slowmode?.rate)).unwrap_or(15);
 
-    active_slowmodes.insert(
-        ctx.channel_id(),
-        crate::ActiveSlowmode {
-            previous_slowmode_rate,
-            duration,
-            rate,
-            invocation_time: *ctx.created_at(),
-        },
-    );
+    active_slowmodes.insert(ctx.channel_id(), crate::ActiveSlowmode {
+        previous_slowmode_rate,
+        duration,
+        rate,
+        invocation_time: *ctx.created_at(),
+    });
 
     Ok((duration, rate))
 }
@@ -105,12 +88,12 @@ async fn restore_slowmode_rate(ctx: Context<'_>) -> Result<(), Error> {
                     "Slowmode entry has expired; this slowmode invocation has been overwritten"
                 );
                 return Ok(());
-            }
+            },
         };
         if active_slowmode.invocation_time != *ctx.created_at() {
             log::info!(
-                "Slowmode entry has a different invocation time; \
-                this slowmode invocation has been overwritten"
+                "Slowmode entry has a different invocation time; this slowmode invocation has \
+                 been overwritten"
             );
             return Ok(());
         }
@@ -118,16 +101,8 @@ async fn restore_slowmode_rate(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     log::info!("Restoring slowmode rate to {}", previous_slowmode_rate);
-    ctx.channel_id()
-        .edit(ctx.discord(), |b| {
-            b.rate_limit_per_user(previous_slowmode_rate)
-        })
-        .await?;
-    ctx.data()
-        .active_slowmodes
-        .lock()
-        .unwrap()
-        .remove(&ctx.channel_id());
+    ctx.channel_id().edit(ctx.discord(), |b| b.rate_limit_per_user(previous_slowmode_rate)).await?;
+    ctx.data().active_slowmodes.lock().unwrap().remove(&ctx.channel_id());
 
     Ok(())
 }
@@ -163,15 +138,13 @@ pub async fn slowmode(
     let (duration, rate) = register_slowmode(ctx, duration, rate).await?;
 
     // Apply slowmode
-    ctx.channel_id()
-        .edit(ctx.discord(), |b| b.rate_limit_per_user(rate))
-        .await?;
+    ctx.channel_id().edit(ctx.discord(), |b| b.rate_limit_per_user(rate)).await?;
 
     // Confirmation message
     let _: Result<_, _> = ctx
         .say(format!(
-            "Slowmode will be enabled for {} minutes. \
-            Members can send one message every {} seconds",
+            "Slowmode will be enabled for {} minutes. Members can send one message every {} \
+             seconds",
             duration, rate,
         ))
         .await;

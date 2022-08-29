@@ -3,7 +3,7 @@ use crate::{Context, Error};
 use reqwest::header;
 use serde::Deserialize;
 
-const USER_AGENT: &str = "kangalioo/rustbot";
+const USER_AGENT: &str = "cachyos/discord-moderation-bot";
 
 #[derive(Debug, Deserialize)]
 struct Crates {
@@ -45,11 +45,7 @@ async fn get_crate(http: &reqwest::Client, query: &str) -> Result<Crate, Error> 
     if crate_.exact_match {
         Ok(crate_)
     } else {
-        Err(format!(
-            "Crate `{}` not found. Did you mean `{}`?",
-            query, crate_.name
-        )
-        .into())
+        Err(format!("Crate `{}` not found. Did you mean `{}`?", query, crate_.name).into())
     }
 }
 
@@ -71,13 +67,13 @@ fn format_number(mut n: u64) -> String {
     output
 }
 
-async fn autocomplete_crate(ctx: Context<'_>, partial: String) -> impl Iterator<Item = String> {
+async fn autocomplete_crate(ctx: Context<'_>, partial: &str) -> impl Iterator<Item = String> {
     let http = &ctx.data().http;
 
     let response = http
         .get("https://crates.io/api/v1/crates")
         .header(header::USER_AGENT, USER_AGENT)
-        .query(&[("q", &*partial), ("per_page", "25"), ("sort", "downloads")])
+        .query(&[("q", partial), ("per_page", "25"), ("sort", "downloads")])
         .send()
         .await;
 
@@ -86,10 +82,7 @@ async fn autocomplete_crate(ctx: Context<'_>, partial: String) -> impl Iterator<
         Err(_) => None,
     };
 
-    crate_list
-        .map_or(Vec::new(), |list| list.crates)
-        .into_iter()
-        .map(|crate_| crate_.name)
+    crate_list.map_or(Vec::new(), |list| list.crates).into_iter().map(|crate_| crate_.name)
 }
 
 /// Lookup crates on crates.io
@@ -123,10 +116,7 @@ pub async fn crate_(
             e.title(&crate_.name)
                 .url(get_documentation(&crate_))
                 .description(
-                    &crate_
-                        .description
-                        .as_deref()
-                        .unwrap_or("_<no description available>_"),
+                    &crate_.description.as_deref().unwrap_or("_<no description available>_"),
                 )
                 .field(
                     "Version",
@@ -204,11 +194,9 @@ pub async fn doc(
     };
 
     if is_primitive(crate_name) {
-        doc_url += "?search=";
-        doc_url += &query;
+        doc_url += &format!("?search={}", &query);
     } else if let Some(item_path) = query_iter.next() {
-        doc_url += "?search=";
-        doc_url += item_path;
+        doc_url += &format!("?search={}", &item_path);
     }
 
     ctx.say(doc_url).await?;

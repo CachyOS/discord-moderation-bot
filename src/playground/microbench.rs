@@ -1,4 +1,5 @@
-use super::{api::*, util::*};
+use super::api::*;
+use super::util::*;
 use crate::{Context, Error};
 
 const BENCH_FUNCTION: &str = r#"
@@ -52,7 +53,7 @@ fn bench(functions: &[(&str, fn())]) {
 #[poise::command(
     prefix_command,
     track_edits,
-    explanation_fn = "microbench_help",
+    help_text_fn = "microbench_help",
     category = "Playground"
 )]
 pub async fn microbench(
@@ -72,16 +73,15 @@ pub async fn microbench(
     let pub_fn_indices = user_code.match_indices("pub fn ").collect::<Vec<_>>();
     match pub_fn_indices.len() {
         0 => {
-            ctx.say("No public functions (`pub fn`) found for benchmarking :thinking:")
-                .await?;
+            ctx.say("No public functions (`pub fn`) found for benchmarking :thinking:").await?;
             return Ok(());
-        }
+        },
         1 => {
             ctx.say("Please include multiple functions. Times are not comparable across runs")
                 .await?;
             return Ok(());
-        }
-        _ => {}
+        },
+        _ => {},
     };
 
     // insert this after user code
@@ -133,14 +133,15 @@ pub fn microbench_help() -> String {
     generic_help(GenericHelp {
         command: "microbench",
         desc: "\
-Benchmarks small snippets of code by running them repeatedly. Public functions \
-are run in blocks of 1000 repetitions in a cycle until 5 seconds have \
-passed. Measurements are averaged and standard deviation is calculated for each
+Benchmarks small snippets of code by running them repeatedly. Public functions are run in blocks \
+               of 1000 repetitions in a cycle until 5 seconds have passed. Measurements are \
+               averaged and standard deviation is calculated for each
 
 Use the `std::hint::black_box` function, which is already imported, to wrap results of \
-computations that shouldn't be optimized out. Also wrap computation inputs in `black_box(...)` \
-that should be opaque to the optimizer: `number * 2` produces optimized integer doubling assembly while \
-`number * black_box(2)` produces a generic integer multiplication instruction",
+               computations that shouldn't be optimized out. Also wrap computation inputs in \
+               `black_box(...)` that should be opaque to the optimizer: `number * 2` produces \
+               optimized integer doubling assembly while `number * black_box(2)` produces a \
+               generic integer multiplication instruction",
         mode_and_channel: false,
         warn: true,
         run: false,

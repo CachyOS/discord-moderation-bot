@@ -49,17 +49,17 @@ pub async fn showcase(ctx: Context<'_>) -> Result<(), Error> {
         match user_input.content.to_ascii_lowercase().trim() {
             "abort" | "stop" | "cancel" | "break" | "terminate" | "exit" | "quit" => {
                 return Err(Error::from("Canceled the operation"))
-            }
-            _ => {}
+            },
+            _ => {},
         }
 
         Ok(user_input)
     };
 
     ctx.say(format!(
-        "Answer the following prompts to generate a <#{0}> entry. If you change your mind \
-            later, you can edit or delete your messages to edit or delete the <#{0}> entry. To \
-            cancel, type `cancel`",
+        "Answer the following prompts to generate a <#{0}> entry. If you change your mind later, \
+         you can edit or delete your messages to edit or delete the <#{0}> entry. To cancel, type \
+         `cancel`",
         ctx.data().showcase_channel.0
     ))
     .await?;
@@ -74,13 +74,7 @@ pub async fn showcase(ctx: Context<'_>) -> Result<(), Error> {
         .showcase_channel
         .send_message(ctx.discord(), |f| {
             f.allowed_mentions(|f| f).embed(|f| {
-                create_embed(
-                    f,
-                    ctx.author(),
-                    &name.content,
-                    &description.content,
-                    &links.content,
-                )
+                create_embed(f, ctx.author(), &name.content, &description.content, &links.content)
             })
         })
         .await?;
@@ -91,19 +85,13 @@ pub async fn showcase(ctx: Context<'_>) -> Result<(), Error> {
         .await
     {
         Ok(thread) => {
-            if let Err(e) = ctx
-                .discord()
-                .http
-                .add_thread_channel_member(thread.id.0, ctx.author().id.0)
-                .await
+            if let Err(e) =
+                ctx.discord().http.add_thread_channel_member(thread.id.0, ctx.author().id.0).await
             {
                 log::warn!("Couldn't add member to showcase thread: {}", e);
             }
-        }
-        Err(e) => log::warn!(
-            "Couldn't create associated thread for showcase entry: {}",
-            e
-        ),
+        },
+        Err(e) => log::warn!("Couldn't create associated thread for showcase entry: {}", e),
     }
 
     {
@@ -156,31 +144,25 @@ pub async fn try_update_showcase_message(
             name_input_message,
             description_input_message,
             links_input_message
-        FROM showcase WHERE ? IN (name_input_message, description_input_message, links_input_message)",
+        FROM showcase WHERE ? IN (name_input_message, description_input_message, \
+         links_input_message)",
         man
     )
     .fetch_optional(&data.database)
     .await?
     {
         let input_channel = serenity::ChannelId(entry.input_channel as u64);
-        let name_msg = input_channel
-            .message(ctx, entry.name_input_message as u64)
-            .await?;
+        let name_msg = input_channel.message(ctx, entry.name_input_message as u64).await?;
         let name = &name_msg.content;
-        let description = input_channel
-            .message(ctx, entry.description_input_message as u64)
-            .await?
-            .content;
-        let links = input_channel
-            .message(ctx, entry.links_input_message as u64)
-            .await?
-            .content;
+        let description =
+            input_channel.message(ctx, entry.description_input_message as u64).await?.content;
+        let links = input_channel.message(ctx, entry.links_input_message as u64).await?.content;
 
-        serenity::ChannelId(entry.output_channel as u64).edit_message(
-            ctx,
-            entry.output_message as u64,
-            |f| f.embed(|f| create_embed(f, &name_msg.author, name, &description, &links)),
-        ).await?;
+        serenity::ChannelId(entry.output_channel as u64)
+            .edit_message(ctx, entry.output_message as u64, |f| {
+                f.embed(|f| create_embed(f, &name_msg.author, name, &description, &links))
+            })
+            .await?;
     }
 
     Ok(())
@@ -196,13 +178,16 @@ pub async fn try_delete_showcase_message(
         "SELECT
             output_message,
             output_channel
-        FROM showcase WHERE ? IN (name_input_message, description_input_message, links_input_message)",
+        FROM showcase WHERE ? IN (name_input_message, description_input_message, \
+         links_input_message)",
         deleted_message_id
     )
     .fetch_optional(&data.database)
     .await?
     {
-        serenity::ChannelId(entry.output_channel as u64).delete_message(ctx, entry.output_message as u64).await?;
+        serenity::ChannelId(entry.output_channel as u64)
+            .delete_message(ctx, entry.output_message as u64)
+            .await?;
     }
 
     Ok(())

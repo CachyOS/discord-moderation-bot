@@ -28,8 +28,12 @@ impl GodboltTarget {
     }
 }
 
-async fn update_godbolt_targets(data: &Data) -> Result<(), Error> {
-    let last_update_time = data.godbolt_targets.lock().unwrap().last_update_time;
+async fn update_godbolt_targets(data: &Data, lang: &'static str) -> Result<(), Error> {
+    let last_update_time = match lang {
+        "rust" => data.godbolt_rust_targets.lock().unwrap().last_update_time,
+        "c++" => data.godbolt_cpp_targets.lock().unwrap().last_update_time,
+        &_ => todo!(),
+    };
     let needs_update = if let Some(last_update_time) = last_update_time {
         // Get the time to wait between each update of the godbolt targets list
         let update_period = std::env::var("GODBOLT_UPDATE_DURATION")
@@ -60,20 +64,31 @@ async fn update_godbolt_targets(data: &Data) -> Result<(), Error> {
     if needs_update {
         let request = data
             .http
-            .get("https://godbolt.org/api/compilers/rust")
+            .get(format!("https://godbolt.org/api/compilers/{}", lang))
             .header(reqwest::header::ACCEPT, "application/json");
         let mut targets: Vec<GodboltTarget> = request.send().await?.json().await?;
         log::info!("got {} godbolt targets", targets.len());
 
-        // Clean up the data we've gotten from the request
-        for target in &mut targets {
-            target.clean_request_data();
-            if let Some(semver) = target.semver.strip_prefix("rustc ") {
-                target.semver = semver.to_owned();
+        if lang == "rust" {
+            // Clean up the data we've gotten from the request
+            for target in &mut targets {
+                target.clean_request_data();
+                if let Some(semver) = target.semver.strip_prefix("rustc ") {
+                    target.semver = semver.to_owned();
+                }
+            }
+        } else if lang == "c++" {
+            // Clean up the data we've gotten from the request
+            for target in &mut targets {
+                target.clean_request_data();
             }
         }
 
-        let mut godbolt_targets = data.godbolt_targets.lock().unwrap();
+        let mut godbolt_targets = match lang {
+            "rust" => data.godbolt_rust_targets.lock().unwrap(),
+            "c++" => data.godbolt_cpp_targets.lock().unwrap(),
+            &_ => todo!(),
+        };
         godbolt_targets.targets = targets;
         godbolt_targets.last_update_time = Some(std::time::Instant::now());
 
@@ -83,38 +98,79 @@ async fn update_godbolt_targets(data: &Data) -> Result<(), Error> {
     Ok(())
 }
 
-async fn fetch_godbolt_targets(data: &Data) -> Vec<GodboltTarget> {
+async fn fetch_godbolt_rust_targets(data: &Data) -> Vec<GodboltTarget> {
     // If we encounter an error while updating the targets list, just log it
-    if let Err(error) = update_godbolt_targets(data).await {
+    if let Err(error) = update_godbolt_targets(data, "rust").await {
         log::error!("failed to update godbolt targets list: {:?}", error);
     }
 
-    data.godbolt_targets.lock().unwrap().targets.clone()
+    data.godbolt_rust_targets.lock().unwrap().targets.clone()
+}
+
+async fn fetch_godbolt_cpp_targets(data: &Data) -> Vec<GodboltTarget> {
+    // If we encounter an error while updating the targets list, just log it
+    if let Err(error) = update_godbolt_targets(data, "c++").await {
+        log::error!("failed to update godbolt targets list: {:?}", error);
+    }
+
+    data.godbolt_cpp_targets.lock().unwrap().targets.clone()
+}
+
+// Generates godbolt-compatible compiler identifier and flags from command input
+pub(super) async fn compiler_id_and_flags(
+    data: &Data,
+    params: &poise::KeyValueArgs,
+    language: &str,
+    mode: GodboltMode,
+) -> Result<(String, String), Error> {
+    match language {
+        "rust" => rustc_id_and_flags(data, params, mode).await,
+        "c++" => cpp_id_and_flags(data, params, mode).await,
+        &_ => Err(Box::from("Unsupported language. Valid: 'rust', 'c++'.")),
+    }
 }
 
 // Generates godbolt-compatible rustc identifier and flags from command input
 //
-// Transforms human readable rustc version (e.g. "1.34.1") into compiler id on godbolt (e.g. "r1341")
-// Full list of version<->id can be obtained at https://godbolt.org/api/compilers/rust
-pub(super) async fn rustc_id_and_flags(
+// Transforms human readable rustc version (e.g. "1.34.1") into compiler id on godbolt (e.g.
+// "r1341") Full list of version<->id can be obtained at https://godbolt.org/api/compilers/rust
+async fn rustc_id_and_flags(
     data: &Data,
     params: &poise::KeyValueArgs,
     mode: GodboltMode,
 ) -> Result<(String, String), Error> {
     let rustc = params.get("rustc").unwrap_or("nightly");
-    let targets = fetch_godbolt_targets(data).await;
+    let targets = fetch_godbolt_rust_targets(data).await;
     let target = targets.into_iter().find(|target| target.semver == rustc.trim()).ok_or(
         "the `rustc` argument should be a version specifier like `nightly` `beta` or `1.45.2`. \
-        Run ?targets for a full list",
+         Run ?targets_rust for a full list",
     )?;
 
-    let mut flags = params
-        .get("flags")
-        .unwrap_or("-Copt-level=3 --edition=2021")
-        .to_owned();
+    let mut flags = params.get("flags").unwrap_or("-Copt-level=3 --edition=2021").to_owned();
     if mode == GodboltMode::LlvmIr {
         flags += " --emit=llvm-ir -Cdebuginfo=0";
     }
+
+    Ok((target.id, flags))
+}
+
+// Generates godbolt-compatible rustc identifier and flags from command input
+//
+// Transforms human readable rustc version (e.g. "1.34.1") into compiler id on godbolt (e.g.
+// "r1341") Full list of version<->id can be obtained at https://godbolt.org/api/compilers/c++
+async fn cpp_id_and_flags(
+    data: &Data,
+    params: &poise::KeyValueArgs,
+    _mode: GodboltMode,
+) -> Result<(String, String), Error> {
+    let cppcompiler = params.get("compiler").unwrap_or("clang_trunk");
+    let targets = fetch_godbolt_cpp_targets(data).await;
+    let target = targets.into_iter().find(|target| target.id == cppcompiler.trim()).ok_or(
+        "the `compiler` argument should be a id specifier like `clang_trunk` `gsnapshot` or \
+         `g122`. Run ?targets_cpp  for a full list",
+    )?;
+
+    let flags = params.get("flags").unwrap_or("-std=c++20 -O3").to_owned();
 
     Ok((target.id, flags))
 }
@@ -145,11 +201,7 @@ impl<'a> From<&'a str> for SemverRanking<'a> {
                     .zip(version_triple.next())
                     .zip(version_triple.next())
                     .and_then(|((major, minor), patch)| {
-                        Some((
-                            major.parse().ok()?,
-                            minor.parse().ok()?,
-                            patch.parse().ok()?,
-                        ))
+                        Some((major.parse().ok()?, minor.parse().ok()?, patch.parse().ok()?))
                     });
 
                 // If we successfully parsed out a semver tuple, return it
@@ -162,15 +214,15 @@ impl<'a> From<&'a str> for SemverRanking<'a> {
                 } else {
                     Self::Compiler(semver)
                 }
-            }
+            },
         }
     }
 }
 
 /// Lists all available godbolt rustc targets
 #[poise::command(prefix_command, slash_command, broadcast_typing, category = "Godbolt")]
-pub async fn targets(ctx: Context<'_>) -> Result<(), Error> {
-    let mut targets = fetch_godbolt_targets(ctx.data()).await;
+pub async fn targets_rust(ctx: Context<'_>) -> Result<(), Error> {
+    let mut targets = fetch_godbolt_rust_targets(ctx.data()).await;
 
     // Can't use sort_by_key because https://github.com/rust-lang/rust/issues/34162
     targets.sort_unstable_by(|lhs, rhs| {
@@ -179,15 +231,39 @@ pub async fn targets(ctx: Context<'_>) -> Result<(), Error> {
 
     ctx.send(|msg| {
         msg.embed(|embed| {
-            embed
-                .title("Godbolt Targets")
-                .fields(targets.into_iter().map(|target| {
-                    (
-                        target.semver,
-                        format!("{} (runs on {})", target.name, target.instruction_set),
-                        true,
-                    )
-                }))
+            embed.title("Godbolt Rust Targets").fields(targets.into_iter().map(|target| {
+                (
+                    target.semver,
+                    format!("{} (runs on {})", target.name, target.instruction_set),
+                    true,
+                )
+            }))
+        })
+    })
+    .await?;
+
+    Ok(())
+}
+
+/// Lists all available godbolt cpp targets
+#[poise::command(prefix_command, slash_command, broadcast_typing, category = "Godbolt")]
+pub async fn targets_cpp(ctx: Context<'_>) -> Result<(), Error> {
+    let mut targets = fetch_godbolt_cpp_targets(ctx.data()).await;
+
+    // Can't use sort_by_key because https://github.com/rust-lang/rust/issues/34162
+    targets.sort_unstable_by(|lhs, rhs| {
+        SemverRanking::from(&*lhs.semver).cmp(&SemverRanking::from(&*rhs.semver))
+    });
+
+    ctx.send(|msg| {
+        msg.embed(|embed| {
+            embed.title("Godbolt CPP Targets").fields(targets.into_iter().map(|target| {
+                (
+                    target.semver,
+                    format!("{} (runs on {})", target.name, target.instruction_set),
+                    true,
+                )
+            }))
         })
     })
     .await?;

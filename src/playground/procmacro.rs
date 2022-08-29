@@ -1,11 +1,12 @@
-use super::{api::*, util::*};
+use super::api::*;
+use super::util::*;
 use crate::{Context, Error};
 
 /// Compile and use a procedural macro
 #[poise::command(
     prefix_command,
     track_edits,
-    explanation_fn = "procmacro_help",
+    help_text_fn = "procmacro_help",
     category = "Playground"
 )]
 pub async fn procmacro(
@@ -83,10 +84,8 @@ fn main() -> std::io::Result<()> {
         .await?;
 
     // funky
-    result.stderr = format_play_eval_stderr(
-        &format_play_eval_stderr(&result.stderr, flags.warn),
-        flags.warn,
-    );
+    result.stderr =
+        format_play_eval_stderr(&format_play_eval_stderr(&result.stderr, flags.warn), flags.warn);
 
     send_reply(ctx, result, &generated_code, &flags, &flag_parse_errors).await
 }
@@ -95,9 +94,9 @@ pub fn procmacro_help() -> String {
     generic_help(GenericHelp {
         command: "procmacro",
         desc: "\
-Compiles a procedural macro by providing two snippets: one for the \
-proc-macro code, and one for the usage code which can refer to the proc-macro crate as \
-`procmacro`. By default, the code is only compiled, _not run_! To run the final code too, pass
+Compiles a procedural macro by providing two snippets: one for the proc-macro code, and one for \
+               the usage code which can refer to the proc-macro crate as `procmacro`. By default, \
+               the code is only compiled, _not run_! To run the final code too, pass
 `run=true`.",
         mode_and_channel: false,
         warn: true,

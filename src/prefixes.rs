@@ -4,12 +4,12 @@ use serenity::futures::{StreamExt, TryStreamExt};
 
 fn prefixes_explanation_text() -> String {
     "\
-You don't want to be constrained to `?` or the good old \"hey ferris\"? Whatever cool prefixes \
-you can think of, add them with `?prefix add your prefix here ` and you can use them to call \
-the bot.
+You don't want to be constrained to `?` or the good old \"hey ferris\"? Whatever cool prefixes you \
+     can think of, add them with `?prefix add your prefix here ` and you can use them to call the \
+     bot.
 
-If your idea turns out less funny than you thought it would be, remove it with \
-`?prefix remove your prefix here `.
+If your idea turns out less funny than you thought it would be, remove it with `?prefix remove \
+     your prefix here `.
     
 Forgot your prefixes? Try `?prefix list`."
         .into()
@@ -19,7 +19,7 @@ Forgot your prefixes? Try `?prefix list`."
 #[poise::command(
     prefix_command,
     slash_command,
-    explanation_fn = "prefixes_explanation_text",
+    help_text_fn = "prefixes_explanation_text",
     category = "Miscellaneous"
 )]
 pub async fn prefix(ctx: Context<'_>) -> Result<(), Error> {
@@ -36,21 +36,16 @@ pub async fn prefix_add(
     new_prefix: String,
 ) -> Result<(), Error> {
     let user_id = ctx.author().id.0 as i64;
-    sqlx::query!(
-        "INSERT INTO prefix (string, user_id) VALUES (?, ?)",
-        new_prefix,
-        user_id,
-    )
-    .execute(&ctx.data().database)
-    .await?;
-
-    ctx.say(format!("You can now use `{}` to speak to me!", new_prefix))
+    sqlx::query!("INSERT INTO prefix (string, user_id) VALUES (?, ?)", new_prefix, user_id,)
+        .execute(&ctx.data().database)
         .await?;
+
+    ctx.say(format!("You can now use `{}` to speak to me!", new_prefix)).await?;
 
     Ok(())
 }
 
-async fn autocomplete_prefix(ctx: Context<'_>, partial: String) -> Vec<String> {
+async fn autocomplete_prefix(ctx: Context<'_>, partial: &str) -> Vec<String> {
     let user_id = ctx.author().id.0 as i64;
     let prefixes = sqlx::query!("SELECT string FROM prefix WHERE user_id = ?", user_id)
         .fetch_many(&ctx.data().database);
@@ -74,14 +69,11 @@ pub async fn prefix_remove(
     prefix: String,
 ) -> Result<(), Error> {
     let user_id = ctx.author().id.0 as i64;
-    let num_deleted_rows = sqlx::query!(
-        "DELETE FROM prefix WHERE user_id = ? AND string = ?",
-        user_id,
-        prefix,
-    )
-    .execute(&ctx.data().database)
-    .await?
-    .rows_affected();
+    let num_deleted_rows =
+        sqlx::query!("DELETE FROM prefix WHERE user_id = ? AND string = ?", user_id, prefix,)
+            .execute(&ctx.data().database)
+            .await?
+            .rows_affected();
 
     let msg = if num_deleted_rows == 0 {
         format!("Cannot find `{}` in your prefixes", prefix)

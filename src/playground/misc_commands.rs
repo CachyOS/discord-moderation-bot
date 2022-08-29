@@ -1,15 +1,11 @@
-use super::{api::*, util::*};
+use super::api::*;
+use super::util::*;
 use crate::{Context, Error};
 
 use std::borrow::Cow;
 
 /// Run code and detect undefined behavior using Miri
-#[poise::command(
-    prefix_command,
-    track_edits,
-    explanation_fn = "miri_help",
-    category = "Playground"
-)]
+#[poise::command(prefix_command, track_edits, help_text_fn = "miri_help", category = "Playground")]
 pub async fn miri(
     ctx: Context<'_>,
     flags: poise::KeyValueArgs,
@@ -24,21 +20,15 @@ pub async fn miri(
         .data()
         .http
         .post("https://play.rust-lang.org/miri")
-        .json(&MiriRequest {
-            code,
-            edition: flags.edition,
-        })
+        .json(&MiriRequest { code, edition: flags.edition })
         .send()
         .await?
         .json()
         .await?;
 
-    result.stderr = extract_relevant_lines(
-        &result.stderr,
-        &["Running `/playground"],
-        &["error: aborting"],
-    )
-    .to_owned();
+    result.stderr =
+        extract_relevant_lines(&result.stderr, &["Running `/playground"], &["error: aborting"])
+            .to_owned();
 
     send_reply(ctx, result, code, &flags, &flag_parse_errors).await
 }
@@ -47,7 +37,7 @@ pub fn miri_help() -> String {
     generic_help(GenericHelp {
         command: "miri",
         desc: "Execute this program in the Miri interpreter to detect certain cases of undefined \
-        behavior (like out-of-bounds memory access)",
+               behavior (like out-of-bounds memory access)",
         mode_and_channel: false,
         // Playgrounds sends miri warnings/errors and output in the same field so we can't filter
         // warnings out
@@ -61,7 +51,7 @@ pub fn miri_help() -> String {
 #[poise::command(
     prefix_command,
     track_edits,
-    explanation_fn = "expand_help",
+    help_text_fn = "expand_help",
     category = "Playground"
 )]
 pub async fn expand(
@@ -79,26 +69,26 @@ pub async fn expand(
         .data()
         .http
         .post("https://play.rust-lang.org/macro-expansion")
-        .json(&MacroExpansionRequest {
-            code: &code,
-            edition: flags.edition,
-        })
+        .json(&MacroExpansionRequest { code: &code, edition: flags.edition })
         .send()
         .await?
         .json()
         .await?;
 
-    result.stderr = extract_relevant_lines(
-        &result.stderr,
-        &["Finished ", "Compiling playground"],
-        &["error: aborting"],
-    )
-    .to_owned();
+    result.stderr =
+        extract_relevant_lines(&result.stderr, &["Finished ", "Compiling playground"], &[
+            "error: aborting",
+        ])
+        .to_owned();
 
     if result.success {
         match apply_online_rustfmt(ctx, &result.stdout, flags.edition).await {
             Ok(PlayResult { success: true, stdout, .. }) => result.stdout = stdout,
-            Ok(PlayResult { success: false, stderr, .. }) => log::warn!("Huh, rustfmt failed even though this code successfully passed through macro expansion before: {}", stderr),
+            Ok(PlayResult { success: false, stderr, .. }) => log::warn!(
+                "Huh, rustfmt failed even though this code successfully passed through macro \
+                 expansion before: {}",
+                stderr
+            ),
             Err(e) => log::warn!("Couldn't run rustfmt: {}", e),
         }
     }
@@ -124,7 +114,7 @@ pub fn expand_help() -> String {
 #[poise::command(
     prefix_command,
     track_edits,
-    explanation_fn = "clippy_help",
+    help_text_fn = "clippy_help",
     category = "Playground"
 )]
 pub async fn clippy(
@@ -146,11 +136,7 @@ pub async fn clippy(
         .data()
         .http
         .post("https://play.rust-lang.org/clippy")
-        .json(&ClippyRequest {
-            code,
-            edition: flags.edition,
-            crate_type: CrateType::Binary,
-        })
+        .json(&ClippyRequest { code, edition: flags.edition, crate_type: CrateType::Binary })
         .send()
         .await?
         .json()
@@ -159,12 +145,7 @@ pub async fn clippy(
     result.stderr = extract_relevant_lines(
         &result.stderr,
         &["Checking playground", "Running `/playground"],
-        &[
-            "error: aborting",
-            "1 warning emitted",
-            "warnings emitted",
-            "Finished ",
-        ],
+        &["error: aborting", "1 warning emitted", "warnings emitted", "Finished "],
     )
     .to_owned();
 
@@ -183,12 +164,7 @@ pub fn clippy_help() -> String {
 }
 
 /// Format code using rustfmt
-#[poise::command(
-    prefix_command,
-    track_edits,
-    explanation_fn = "fmt_help",
-    category = "Playground"
-)]
+#[poise::command(prefix_command, track_edits, help_text_fn = "fmt_help", category = "Playground")]
 pub async fn fmt(
     ctx: Context<'_>,
     flags: poise::KeyValueArgs,

@@ -1,4 +1,5 @@
-use super::{api::*, util::*};
+use super::api::*;
+use super::util::*;
 use crate::{Context, Error};
 
 // play and eval work similarly, so this function abstracts over the two
@@ -18,6 +19,8 @@ async fn play_or_eval(
         flags.warn = true;
     }
 
+    let crate_type = if code.contains("fn main") { CrateType::Binary } else { CrateType::Library };
+
     let mut result: PlayResult = ctx
         .data()
         .http
@@ -25,7 +28,7 @@ async fn play_or_eval(
         .json(&PlaygroundRequest {
             code: &code,
             channel: flags.channel,
-            crate_type: CrateType::Binary,
+            crate_type,
             edition: flags.edition,
             mode: flags.mode,
             tests: false,
@@ -41,12 +44,7 @@ async fn play_or_eval(
 }
 
 /// Compile and run Rust code in a playground
-#[poise::command(
-    prefix_command,
-    track_edits,
-    explanation_fn = "play_help",
-    category = "Playground"
-)]
+#[poise::command(prefix_command, track_edits, help_text_fn = "play_help", category = "Playground")]
 pub async fn play(
     ctx: Context<'_>,
     flags: poise::KeyValueArgs,
@@ -70,7 +68,7 @@ pub fn play_help() -> String {
 #[poise::command(prefix_command,
     track_edits,
     hide_in_help, // don't clutter help menu with something that ?play can do too
-    explanation_fn = "playwarn_help",
+    help_text_fn = "playwarn_help",
     category = "Playground"
 )]
 pub async fn playwarn(
@@ -93,12 +91,7 @@ pub fn playwarn_help() -> String {
 }
 
 /// Evaluate a single Rust expression
-#[poise::command(
-    prefix_command,
-    track_edits,
-    explanation_fn = "eval_help",
-    category = "Playground"
-)]
+#[poise::command(prefix_command, track_edits, help_text_fn = "eval_help", category = "Playground")]
 pub async fn eval(
     ctx: Context<'_>,
     flags: poise::KeyValueArgs,

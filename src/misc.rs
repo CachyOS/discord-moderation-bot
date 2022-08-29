@@ -16,7 +16,7 @@ pub async fn go(ctx: Context<'_>) -> Result<(), Error> {
     category = "Miscellaneous"
 )]
 pub async fn source(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("https://github.com/kangalioo/rustbot").await?;
+    ctx.say("https://github.com/cachyos/discord-moderation-bot").await?;
     Ok(())
 }
 
@@ -33,15 +33,11 @@ You can still use all commands with `?`, even if it says `/` above.
 Type ?help command for more info on a command.
 You can edit your message to the bot and the bot will edit its response.";
 
-    poise::builtins::help(
-        ctx,
-        command.as_deref(),
-        poise::builtins::HelpConfiguration {
-            extra_text_at_bottom,
-            ephemeral: true,
-            ..Default::default()
-        },
-    )
+    poise::builtins::help(ctx, command.as_deref(), poise::builtins::HelpConfiguration {
+        extra_text_at_bottom,
+        ephemeral: true,
+        ..Default::default()
+    })
     .await?;
     Ok(())
 }
@@ -57,12 +53,7 @@ pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Erro
 }
 
 /// Tells you how long the bot has been up for
-#[poise::command(
-    prefix_command,
-    slash_command,
-    hide_in_help,
-    category = "Miscellaneous"
-)]
+#[poise::command(prefix_command, slash_command, hide_in_help, category = "Miscellaneous")]
 pub async fn uptime(ctx: Context<'_>) -> Result<(), Error> {
     let uptime = std::time::Instant::now() - ctx.data().bot_start_time;
 
@@ -73,11 +64,7 @@ pub async fn uptime(ctx: Context<'_>) -> Result<(), Error> {
     let (hours, minutes) = div_mod(minutes, 60);
     let (days, hours) = div_mod(hours, 24);
 
-    ctx.say(format!(
-        "Uptime: {}d {}h {}m {}s",
-        days, hours, minutes, seconds
-    ))
-    .await?;
+    ctx.say(format!("Uptime: {}d {}h {}m {}s", days, hours, minutes, seconds)).await?;
 
     Ok(())
 }
@@ -97,16 +84,10 @@ pub async fn servers(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Displays the SHA-1 git revision the bot was built against
-#[poise::command(
-    prefix_command,
-    hide_in_help,
-    discard_spare_arguments,
-    category = "Miscellaneous"
-)]
+#[poise::command(prefix_command, hide_in_help, discard_spare_arguments, category = "Miscellaneous")]
 pub async fn revision(ctx: Context<'_>) -> Result<(), Error> {
     let rustbot_rev: Option<&'static str> = option_env!("RUSTBOT_REV");
-    ctx.say(format!("`{}`", rustbot_rev.unwrap_or("unknown")))
-        .await?;
+    ctx.say(format!("`{}`", rustbot_rev.unwrap_or("unknown"))).await?;
     Ok(())
 }
 
@@ -146,15 +127,68 @@ pub async fn conradluget(
         57,
         286,
         rusttype::Scale::uniform(65.0),
-        &*FONT,
+        &FONT,
         &format!("Get {}", text),
     );
 
     let mut img_bytes = Vec::with_capacity(200_000); // preallocate 200kB for the img
-    image::DynamicImage::ImageRgba8(image).write_to(
-        &mut std::io::Cursor::new(&mut img_bytes),
-        image::ImageOutputFormat::Png,
-    )?;
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut std::io::Cursor::new(&mut img_bytes), image::ImageOutputFormat::Png)?;
+
+    ctx.send(|b| {
+        b.attachment(serenity::AttachmentType::Bytes {
+            data: img_bytes.into(),
+            filename: "unnamed.png".into(),
+        })
+    })
+    .await?;
+
+    Ok(())
+}
+
+/// Use this joke command to have Nico tell you something
+///
+/// Example: `?nicosay Get a better computer`
+#[poise::command(
+    prefix_command,
+    slash_command,
+    hide_in_help,
+    track_edits,
+    category = "Miscellaneous"
+)]
+pub async fn nicosay(
+    ctx: Context<'_>,
+    #[description = "Say what?"]
+    #[rest]
+    text: String,
+) -> Result<(), Error> {
+    use once_cell::sync::Lazy;
+    static BASE_IMAGE: Lazy<image::DynamicImage> = Lazy::new(|| {
+        image::io::Reader::with_format(
+            std::io::Cursor::new(&include_bytes!("../assets/nico.png")[..]),
+            image::ImageFormat::Png,
+        )
+        .decode()
+        .expect("failed to load image")
+    });
+    static FONT: Lazy<rusttype::Font> = Lazy::new(|| {
+        rusttype::Font::try_from_bytes(include_bytes!("../assets/OpenSans.ttf"))
+            .expect("failed to load font")
+    });
+
+    let image = imageproc::drawing::draw_text(
+        &*BASE_IMAGE,
+        image::Rgba([201, 209, 217, 255]),
+        170,
+        13,
+        rusttype::Scale::uniform(28.0),
+        &FONT,
+        &text.to_string(),
+    );
+
+    let mut img_bytes = Vec::with_capacity(200_000); // preallocate 200kB for the img
+    image::DynamicImage::ImageRgba8(image)
+        .write_to(&mut std::io::Cursor::new(&mut img_bytes), image::ImageOutputFormat::Png)?;
 
     ctx.send(|b| {
         b.attachment(serenity::AttachmentType::Bytes {

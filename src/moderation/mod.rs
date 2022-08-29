@@ -8,7 +8,8 @@ use crate::{serenity, Context, Error};
 /// ?cleanup [limit]
 ///
 /// Deletes the bot's messages for cleanup.
-/// You can specify how many messages to look for. Only messages from the last 24 hours can be deleted.
+/// You can specify how many messages to look for. Only messages from the last 24 hours can be
+/// deleted.
 #[poise::command(
     prefix_command,
     on_error = "crate::acknowledge_fail",
@@ -37,40 +38,9 @@ pub async fn cleanup(
         })
         .take(num_messages);
 
-    ctx.channel_id()
-        .delete_messages(ctx.discord(), messages_to_delete)
-        .await?;
+    ctx.channel_id().delete_messages(ctx.discord(), messages_to_delete).await?;
 
     crate::acknowledge_success(ctx, "rustOk", '👌').await
-}
-
-/// Bans another person
-///
-/// ?ban <member>
-///
-/// Bans another person
-#[poise::command(
-    prefix_command,
-    on_error = "crate::acknowledge_fail",
-    aliases("banne"),
-    slash_command,
-    track_edits,
-    category = "Moderation"
-)]
-pub async fn ban(
-    ctx: Context<'_>,
-    #[description = "Banned user"] banned_user: serenity::Member,
-    #[description = "Ban reason"]
-    #[rest]
-    _reason: Option<String>,
-) -> Result<(), Error> {
-    ctx.say(format!(
-        "Banned user {}  {}",
-        banned_user.user.tag(),
-        crate::custom_emoji_code(ctx, "ferrisBanne", '🔨').await
-    ))
-    .await?;
-    Ok(())
 }
 
 async fn rustify_inner(ctx: Context<'_>, users: &[serenity::Member]) -> Result<(), Error> {
@@ -91,10 +61,7 @@ async fn rustify_inner(ctx: Context<'_>, users: &[serenity::Member]) -> Result<(
                 user.guild_id.0,
                 user.user.id.0,
                 ctx.data().rustacean_role.0,
-                Some(&format!(
-                    "You have been rusted by {}! owo",
-                    ctx.author().name
-                )),
+                Some(&format!("You have been rusted by {}! owo", ctx.author().name)),
             )
             .await?;
     }
@@ -158,10 +125,7 @@ pub async fn report(
     ctx: Context<'_>,
     #[description = "What did the user do wrong?"] reason: String,
 ) -> Result<(), Error> {
-    let reports_channel = ctx
-        .data()
-        .reports_channel
-        .ok_or("No reports channel was configured")?;
+    let reports_channel = ctx.data().reports_channel.ok_or("No reports channel was configured")?;
 
     let naughty_channel = ctx
         .channel_id()
@@ -226,11 +190,9 @@ pub async fn move_(
     let member = guild.member(ctx.discord(), ctx.author().id).await?;
     let permissions_in_target_channel = guild.user_permissions_in(&target_channel, &member)?;
     if !permissions_in_target_channel.send_messages() {
-        return Err(format!(
-            "You don't have permission to post in {}",
-            target_channel.mention(),
-        )
-        .into());
+        return Err(
+            format!("You don't have permission to post in {}", target_channel.mention(),).into()
+        );
     }
 
     let source_msg_link = match ctx {
@@ -257,8 +219,7 @@ pub async fn move_(
     // let comefrom_message = target_channel.say(ctx.discord, comefrom_message).await?;
     let comefrom_message = target_channel
         .send_message(ctx.discord(), |f| {
-            f.content(comefrom_message)
-                .allowed_mentions(|f| f.users(users_to_ping))
+            f.content(comefrom_message).allowed_mentions(|f| f.users(users_to_ping))
         })
         .await?;
 

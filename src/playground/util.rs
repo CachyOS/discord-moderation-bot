@@ -62,10 +62,7 @@ pub struct GenericHelp<'a> {
 }
 
 pub fn generic_help(spec: GenericHelp<'_>) -> String {
-    let mut reply = format!(
-        "{}. All code is executed on https://play.rust-lang.org.\n",
-        spec.desc
-    );
+    let mut reply = format!("{}. All code is executed on https://play.rust-lang.org.\n", spec.desc);
 
     reply += "```rust\n?";
     reply += spec.command;
@@ -113,11 +110,7 @@ pub fn extract_relevant_lines<'a>(
     strip_end_tokens: &[&str],
 ) -> &'a str {
     // Find best matching start token
-    if let Some(start_token_pos) = strip_start_tokens
-        .iter()
-        .filter_map(|t| stderr.rfind(t))
-        .max()
-    {
+    if let Some(start_token_pos) = strip_start_tokens.iter().filter_map(|t| stderr.rfind(t)).max() {
         // Keep only lines after that
         stderr = match stderr[start_token_pos..].find('\n') {
             Some(line_end) => &stderr[(line_end + start_token_pos + 1)..],
@@ -126,11 +119,7 @@ pub fn extract_relevant_lines<'a>(
     }
 
     // Find best matching end token
-    if let Some(end_token_pos) = strip_end_tokens
-        .iter()
-        .filter_map(|t| stderr.rfind(t))
-        .min()
-    {
+    if let Some(end_token_pos) = strip_end_tokens.iter().filter_map(|t| stderr.rfind(t)).min() {
         // Keep only lines before that
         stderr = match stderr[..end_token_pos].rfind('\n') {
             Some(prev_line_end) => &stderr[..=prev_line_end],
@@ -245,17 +234,14 @@ pub async fn send_reply(
         text_end += "Playground timeout detected";
     }
 
-    let text = crate::trim_text(
-        &format!("{}```rust\n{}", flag_parse_errors, result),
-        &text_end,
-        async {
+    let text =
+        crate::trim_text(&format!("{}```rust\n{}", flag_parse_errors, result), &text_end, async {
             format!(
                 "Output too large. Playground link: <{}>",
                 api::url_from_gist(flags, &api::post_gist(ctx, code).await.unwrap_or_default()),
             )
-        },
-    )
-    .await;
+        })
+        .await;
 
     let custom_button_id = ctx.id().to_string();
     let mut response = ctx
@@ -265,7 +251,7 @@ pub async fn send_reply(
                     b.create_action_row(|b| {
                         b.create_button(|b| {
                             b.label("Retry")
-                                .style(serenity::ButtonStyle::Primary)
+                                .style(serenity::component::ButtonStyle::Primary)
                                 .custom_id(&custom_button_id)
                         })
                     })
@@ -274,7 +260,7 @@ pub async fn send_reply(
             b.content(text)
         })
         .await?
-        .message()
+        .into_message()
         .await?;
     if let Some(retry_pressed) = response
         .await_component_interaction(&ctx.discord().shard)
@@ -285,15 +271,13 @@ pub async fn send_reply(
         retry_pressed
             .create_interaction_response(ctx.discord(), |b| {
                 // b.kind(serenity::InteractionResponseType::Pong)
-                b.kind(serenity::InteractionResponseType::DeferredUpdateMessage)
+                b.kind(serenity::interaction::InteractionResponseType::DeferredUpdateMessage)
             })
             .await?;
         ctx.rerun().await?;
     } else {
         // If timed out, just remove the button
-        response
-            .edit(ctx.discord(), |b| b.components(|b| b))
-            .await?;
+        response.edit(ctx.discord(), |b| b.components(|b| b)).await?;
     }
 
     Ok(())
@@ -307,9 +291,9 @@ pub fn strip_fn_main_boilerplate_from_formatted(text: &str) -> String {
     let postfix = "}";
 
     let text = match (text.find(prefix), text.rfind(postfix)) {
-        (Some(prefix_pos), Some(postfix_pos)) => text
-            .get((prefix_pos + prefix.len())..postfix_pos)
-            .unwrap_or(text),
+        (Some(prefix_pos), Some(postfix_pos)) => {
+            text.get((prefix_pos + prefix.len())..postfix_pos).unwrap_or(text)
+        },
         _ => text,
     };
     let text = text.trim();
@@ -328,18 +312,14 @@ pub fn strip_fn_main_boilerplate_from_formatted(text: &str) -> String {
 /// If the program doesn't compile, the compiler output is returned. If it did compile and run,
 /// compiler output (i.e. warnings) is shown only when show_compiler_warnings is true.
 pub fn format_play_eval_stderr(stderr: &str, show_compiler_warnings: bool) -> String {
-    let compiler_output = extract_relevant_lines(
-        stderr,
-        &["Compiling playground"],
-        &[
-            "warning emitted",
-            "warnings emitted",
-            "warning: `playground` (bin \"playground\") generated",
-            "error: could not compile",
-            "error: aborting",
-            "Finished ",
-        ],
-    );
+    let compiler_output = extract_relevant_lines(stderr, &["Compiling playground"], &[
+        "warning emitted",
+        "warnings emitted",
+        "warning: `playground` (bin \"playground\") generated",
+        "error: could not compile",
+        "error: aborting",
+        "Finished ",
+    ]);
 
     if stderr.contains("Running `target") {
         // Program successfully compiled, so compiler output will be just warnings

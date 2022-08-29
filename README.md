@@ -1,4 +1,4 @@
-# Rustbot
+# CachyOS discord moderation bot
 
 ## Inviting the bot
 

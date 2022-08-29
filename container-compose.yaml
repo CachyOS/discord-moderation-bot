@@ -1,7 +1,7 @@
 version: '3'
 
 services:
-  rustbot:
+  cachyos_discord_bot:
     build:
       context: '.'
       dockerfile: 'Containerfile'
@@ -9,8 +9,8 @@ services:
     restart: 'unless-stopped'
     volumes:
     - type: 'volume'
-      source: 'rustbot-database'
+      source: 'cachyos_discord_bot-database'
       target: '/usr/src/app/database'
 
 volumes:
-  rustbot-database:
+  cachyos_discord_bot-database:

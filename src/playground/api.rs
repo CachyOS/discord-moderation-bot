@@ -140,30 +140,16 @@ impl<'de> Deserialize<'de> for PlayResult {
         #[derive(Deserialize)]
         #[serde(untagged)]
         pub enum RawPlayResponse {
-            Err {
-                error: String,
-            },
-            Ok {
-                success: bool,
-                stdout: String,
-                stderr: String,
-            },
+            Err { error: String },
+            Ok { success: bool, stdout: String, stderr: String },
         }
 
         Ok(match RawPlayResponse::deserialize(deserializer)? {
-            RawPlayResponse::Ok {
-                success,
-                stdout,
-                stderr,
-            } => PlayResult {
-                success,
-                stdout,
-                stderr,
+            RawPlayResponse::Ok { success, stdout, stderr } => {
+                PlayResult { success, stdout, stderr }
             },
-            RawPlayResponse::Err { error } => PlayResult {
-                success: false,
-                stdout: String::new(),
-                stderr: error,
+            RawPlayResponse::Err { error } => {
+                PlayResult { success: false, stdout: String::new(), stderr: error }
             },
         })
     }
@@ -226,9 +212,5 @@ pub async fn apply_online_rustfmt(
         .json::<FormatResponse>()
         .await?;
 
-    Ok(PlayResult {
-        success: result.success,
-        stdout: result.code,
-        stderr: result.stderr,
-    })
+    Ok(PlayResult { success: result.success, stdout: result.code, stderr: result.stderr })
 }
