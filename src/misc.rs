@@ -1,13 +1,6 @@
 use crate::{Context, Error};
 use poise::serenity_prelude as serenity;
 
-/// Evaluates Go code
-#[poise::command(prefix_command, discard_spare_arguments, category = "Miscellaneous")]
-pub async fn go(ctx: Context<'_>) -> Result<(), Error> {
-    ctx.say("No").await?;
-    Ok(())
-}
-
 /// Links to the bot GitHub repo
 #[poise::command(
     prefix_command,

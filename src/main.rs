@@ -173,7 +173,6 @@ async fn app() -> Result<(), Error> {
             moderation::move_(),
             moderation::slowmode(),
             showcase::showcase(),
-            misc::go(),
             misc::source(),
             misc::help(),
             misc::register(),
