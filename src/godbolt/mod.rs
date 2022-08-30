@@ -41,8 +41,15 @@ struct GodboltResponse {
 
 #[derive(Debug, serde::Deserialize)]
 struct GodboltRunResponse {
-    code: u8,
+    code: i8,
     stdout: GodboltOutput,
+    stderr: GodboltOutput,
+    #[serde(rename = "buildResult")]
+    build_result: GodboltBuildResult,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct GodboltBuildResult {
     stderr: GodboltOutput,
 }
 
@@ -79,7 +86,7 @@ async fn run_cpp_source(
                 "filters": { "execute": true, },
                 "tools": [],
                 "libraries": [
-                    {"id": "curl", "version": "7.83.1"},
+                    {"id": "curl", "version": "7831"},
                     {"id": "range-v3", "version": "trunk"},
                     {"id": "fmt", "version": "trunk"}
                 ],
@@ -98,7 +105,7 @@ async fn run_cpp_source(
             llvm_mca: None,
         }
     } else {
-        Compilation::Error { stderr: response.stderr.full_with_ansi_codes_stripped()? }
+        Compilation::Error { stderr: response.build_result.stderr.full_with_ansi_codes_stripped()? }
     })
 }
 
@@ -125,7 +132,7 @@ async fn compile_source(
 
     let libraries = if language == "c++" {
         serde_json::json! {[
-            {"id": "curl", "version": "7.83.1"},
+            {"id": "curl", "version": "7831"},
             {"id": "range-v3", "version": "trunk"},
             {"id": "fmt", "version": "trunk"}
         ]}
