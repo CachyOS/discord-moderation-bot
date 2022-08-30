@@ -125,6 +125,7 @@ async fn compile_source(
 
     let libraries = if language == "c++" {
         serde_json::json! {[
+            {"id": "curl", "version": "7.83.1"},
             {"id": "range-v3", "version": "trunk"},
             {"id": "fmt", "version": "trunk"}
         ]}
