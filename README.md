@@ -4,9 +4,7 @@
 
 Some permissions are required:
 - Send Messages: base command functionality
-- Manage Roles: for `?rustify` command
 - Manage Messages: for `?cleanup` command
-- Add Reactions: for `?rustify` command feedback
 Furthermore, the `applications.commands` OAuth2 scope is required for slash commands.
 
 Here's an sample invite link, with the permissions and scopes incorporated:

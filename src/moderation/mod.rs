@@ -43,58 +43,6 @@ pub async fn cleanup(
     crate::acknowledge_success(ctx, "rustOk", '👌').await
 }
 
-async fn rustify_inner(ctx: Context<'_>, users: &[serenity::Member]) -> Result<(), Error> {
-    if let Some(member) = ctx.author_member().await {
-        if !member.roles.contains(&ctx.data().rustacean_role) {
-            return Err("Only Rustaceans can use this command".into());
-        }
-    }
-    if users.is_empty() {
-        // This error text won't be seen (replaced with a cross emoji reaction)
-        return Err("Please specify a user to rustify".into());
-    }
-
-    for user in users {
-        ctx.discord()
-            .http
-            .add_member_role(
-                user.guild_id.0,
-                user.user.id.0,
-                ctx.data().rustacean_role.0,
-                Some(&format!("You have been rusted by {}! owo", ctx.author().name)),
-            )
-            .await?;
-    }
-    crate::acknowledge_success(ctx, "rustOk", '👌').await
-}
-
-// We need separate implementations for the rustify command, because the slash command only supports
-// a single argument while the normal (prefix) version supports variadic arguments
-// rustify is the canonical one with all the attributes set correctly
-
-/// Adds the Rustacean role to members
-#[poise::command(
-    prefix_command,
-    on_error = "crate::acknowledge_fail",
-    rename = "rustify",
-    category = "Moderation",
-    ephemeral
-)]
-pub async fn rustify(ctx: Context<'_>, users: Vec<serenity::Member>) -> Result<(), Error> {
-    rustify_inner(ctx, &users).await
-}
-
-/// Adds the Rustacean role to a member
-#[poise::command(slash_command, context_menu_command = "Rustify")]
-pub async fn application_rustify(
-    ctx: Context<'_>,
-    #[description = "User to rustify"] user: serenity::User,
-) -> Result<(), Error> {
-    let guild_id = ctx.guild_id().ok_or("Must use this command in a guild")?;
-    let member = guild_id.member(ctx.discord(), user.id).await?;
-    rustify_inner(ctx, &[member]).await
-}
-
 async fn latest_message_link(ctx: Context<'_>) -> String {
     let message = ctx
         .channel_id()

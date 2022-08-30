@@ -81,22 +81,6 @@ async fn listener(
         poise::Event::MessageDelete { deleted_message_id, .. } => {
             showcase::try_delete_showcase_message(ctx, data, *deleted_message_id).await?
         },
-        poise::Event::GuildMemberAddition { new_member } => {
-            const RUSTIFICATION_DELAY: u64 = 30; // in minutes
-
-            tokio::time::sleep(std::time::Duration::from_secs(RUSTIFICATION_DELAY * 60)).await;
-
-            // Ignore errors because the user may have left already
-            let _: Result<_, _> = ctx
-                .http
-                .add_member_role(
-                    new_member.guild_id.0,
-                    new_member.user.id.0,
-                    data.rustacean_role.0,
-                    Some(&format!("Automatically rustified after {} minutes", RUSTIFICATION_DELAY)),
-                )
-                .await;
-        },
         _ => {},
     }
 
@@ -118,7 +102,6 @@ pub struct Data {
     bot_user_id: serenity::UserId,
     #[allow(dead_code)] // might add back in
     mod_role_id: serenity::RoleId,
-    rustacean_role: serenity::RoleId,
     reports_channel: Option<serenity::ChannelId>,
     showcase_channel: serenity::ChannelId,
     bot_start_time: std::time::Instant,
@@ -143,7 +126,6 @@ where
 async fn app() -> Result<(), Error> {
     let discord_token = env_var::<String>("DISCORD_TOKEN")?;
     let mod_role_id = env_var("MOD_ROLE_ID")?;
-    let rustacean_role = env_var("RUSTACEAN_ROLE_ID")?;
     let reports_channel = env_var("REPORTS_CHANNEL_ID").ok();
     let showcase_channel = env_var("SHOWCASE_CHANNEL_ID")?;
     let database_url = env_var::<String>("DATABASE_URL")?;
@@ -251,16 +233,6 @@ async fn app() -> Result<(), Error> {
         });
     }
 
-    // Use different implementations for rustify because of different feature sets
-    let application_rustify = moderation::application_rustify();
-    options.commands.push(poise::Command {
-        context_menu_action: application_rustify.context_menu_action,
-        slash_action: application_rustify.slash_action,
-        context_menu_name: application_rustify.context_menu_name,
-        parameters: application_rustify.parameters,
-        ..moderation::rustify()
-    });
-
     if reports_channel.is_some() {
         options.commands.push(moderation::report());
     }
@@ -281,7 +253,6 @@ async fn app() -> Result<(), Error> {
                 Ok(Data {
                     bot_user_id: bot.user.id,
                     mod_role_id,
-                    rustacean_role,
                     reports_channel,
                     showcase_channel,
                     bot_start_time: std::time::Instant::now(),
