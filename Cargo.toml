@@ -30,9 +30,9 @@ anyhow = "1"
 ab_glyph = "0.2" # interact with imageproc
 syn = { version = "2.0.60", features = ["full"] }
 
-# [patch.crates-io]
+[patch.crates-io]
 # poise = { git = "https://github.com/elkowar/poise", branch = "optimize-monomorphization" }
-# serenity = { git = "https://github.com/elkowar/serenity", branch = "smaller_send_message" }
+serenity = { git = "https://github.com/serenity-rs/serenity", rev = "be4193a60ea1b7cf60b890a4f1491ab63f50945c" }
 
 [profile.release]
 strip = "symbols"
