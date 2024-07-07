@@ -42,7 +42,7 @@ pub async fn cleanup(
 
     ctx.channel_id().delete_messages(&ctx, messages_to_delete).await?;
 
-    crate::helpers::acknowledge_success(ctx, "rustOk", '👌').await
+    crate::helpers::acknowledge_success(ctx, "cat_uwu", '👌').await
 }
 
 async fn latest_message_link(ctx: Context<'_>) -> String {
