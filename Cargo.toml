@@ -20,7 +20,6 @@ chrono = "0.4" # To interact with serenity
 # poise = { path = "../poise", features = ["collector"] }
 poise = "0.6"
 tokio = { version = "1.38", features = ["rt-multi-thread", "process"] }
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite"] }
 dotenv = "0.15.0"
 image = { version = "0.25", default-features = false, features = ["png"] } # get a better computer meme rendering
 imageproc = { version = "0.25", default-features = false } # get a better computer meme rendering

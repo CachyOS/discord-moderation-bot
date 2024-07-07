@@ -8,11 +8,4 @@ services:
       context: '.'
       dockerfile: 'Dockerfile'
     env_file: '.env'
-    volumes:
-      - type: 'volume'
-        source: 'cachyos_discord_bot-database'
-        target: '/usr/src/app/database'
     restart: always
-
-volumes:
-  cachyos_discord_bot-database:

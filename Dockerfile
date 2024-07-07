@@ -1,8 +1,6 @@
 FROM rust:latest as builder
 
 ENV USER=root
-ENV SQLX_OFFLINE=true
-ENV DATABASE_URL=sqlite:database/database.sqlite
 
 # Build the dependencies in a separate step to avoid rebuilding all of them
 # every time the source code changes. This takes advantage of Docker's layer
@@ -45,7 +43,6 @@ RUN apt-get update \
 
 COPY --from=builder /cachyos_discord_bot/target/release/cachyos_discord_bot .
 
-RUN mkdir database
 RUN chown -R $APP_USER:$APP_USER .
 
 USER $APP_USER

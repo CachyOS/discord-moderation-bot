@@ -72,7 +72,6 @@ async fn app() -> Result<(), Error> {
     let discord_token = env_var::<String>("DISCORD_TOKEN")?;
     let mod_role_id = env_var("MOD_ROLE_ID")?;
     let reports_channel = env_var("REPORTS_CHANNEL_ID").ok();
-    let database_url = env_var::<String>("DATABASE_URL")?;
     let discord_guild_id = env_var("DISCORD_SERVER_ID")?;
 
     let intents = serenity::GatewayIntents::non_privileged()
@@ -160,14 +159,6 @@ async fn app() -> Result<(), Error> {
     if reports_channel.is_some() {
         options.commands.push(moderation::report());
     }
-
-    let database = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(
-            database_url.parse::<sqlx::sqlite::SqliteConnectOptions>()?.create_if_missing(true),
-        )
-        .await?;
-    sqlx::migrate!("./migrations").run(&database).await?;
 
     let framework =
         poise::Framework::builder()
