@@ -1,8 +1,12 @@
-use super::api;
-use crate::{Context, Error};
-use poise::serenity_prelude as serenity;
-
 use std::borrow::Cow;
+
+use poise::serenity_prelude as serenity;
+use serenity::ComponentInteraction;
+
+use crate::types::Context;
+use crate::Error;
+
+use super::api;
 
 // Small thing about multiline strings: while hacking on this file I was unsure how to handle
 // trailing newlines in multiline strings:
@@ -182,26 +186,73 @@ pub fn hoise_crate_attributes(code: &str, after_crate_attrs: &str, after_code: &
 /// Utility used by the commands to wrap the given code in a `fn main` if not already wrapped.
 /// To check, whether a wrap was done, check if the return type is Cow::Borrowed vs Cow::Owned
 /// If a wrap was done, also hoists crate attributes to the top so they keep working
-pub fn maybe_wrap(code: &str, result_handling: ResultHandling) -> Cow<'_, str> {
-    if code.contains("fn main") || code.contains("#![no_main]") {
-        return Cow::Borrowed(code);
+pub fn maybe_wrap(code: &str, result_handling: ResultHandling) -> Cow<str> {
+    maybe_wrapped(code, result_handling, false, false)
+}
+
+pub fn maybe_wrapped(
+    code: &str,
+    result_handling: ResultHandling,
+    unsf: bool,
+    pretty: bool,
+) -> Cow<str> {
+    use syn::parse::Parse;
+    use syn::*;
+
+    // We use syn to check whether there is a main function.
+    struct Inline {
+        attrs: Vec<Attribute>,
+        stmts: Vec<Stmt>,
     }
 
+    impl Parse for Inline {
+        fn parse(input: parse::ParseStream) -> Result<Self> {
+            let attrs = Attribute::parse_inner(input)?;
+            let stmts = Block::parse_within(input)?;
+            for stmt in &stmts {
+                if let Stmt::Item(Item::Fn(ItemFn { sig, .. })) = stmt {
+                    if sig.ident == "main" && sig.inputs.is_empty() {
+                        return Err(input.error("main"));
+                    }
+                }
+            }
+            Ok(Self { attrs, stmts })
+        }
+    }
+
+    let Ok(Inline { .. }) = parse_str::<Inline>(code) else {
+        return Cow::Borrowed(code);
+    };
+
+    // These string subsitutions are not quite optimal, but they perfectly preserve formatting,
+    // which is very important. This function must not change the formatting of the supplied
+    // code or it will be confusing and hard to use.
+
     // fn main boilerplate
-    let after_crate_attrs = match result_handling {
+    let mut after_crate_attrs = match result_handling {
         ResultHandling::None => "fn main() {\n",
         ResultHandling::Discard => "fn main() { let _ = {\n",
         ResultHandling::Print => "fn main() { println!(\"{:?}\", {\n",
-    };
+    }
+    .to_owned();
+
+    if unsf {
+        after_crate_attrs = format!("{after_crate_attrs}unsafe {{");
+    }
 
     // fn main boilerplate counterpart
-    let after_code = match result_handling {
+    let mut after_code = match result_handling {
         ResultHandling::None => "}",
         ResultHandling::Discard => "}; }",
         ResultHandling::Print => "}); }",
-    };
+    }
+    .to_owned();
 
-    Cow::Owned(hoise_crate_attributes(code, after_crate_attrs, after_code))
+    if unsf {
+        after_code = format!("}}{after_code}");
+    }
+
+    Cow::Owned(hoise_crate_attributes(code, &after_crate_attrs, &after_code))
 }
 
 /// Send a Discord reply with the formatted contents of a Playground result
@@ -212,13 +263,7 @@ pub async fn send_reply(
     flags: &api::CommandFlags,
     flag_parse_errors: &str,
 ) -> Result<(), Error> {
-    let result = if result.stderr.is_empty() {
-        result.stdout
-    } else if result.stdout.is_empty() {
-        result.stderr
-    } else {
-        format!("{}\n{}", result.stderr, result.stdout)
-    };
+    let result = crate::helpers::merge_output_and_errors(&result.stdout, &result.stderr);
 
     // Discord displays empty code blocks weirdly if they're not formatted in a specific style,
     // so we special-case empty code blocks
@@ -227,57 +272,59 @@ pub async fn send_reply(
         return Ok(());
     }
 
-    let timeout = result.contains("Killed                  timeout --signal=KILL");
+    let timeout =
+        result.contains("Killed") && result.contains("timeout") && result.contains("--signal=KILL");
 
     let mut text_end = String::from("```");
     if timeout {
         text_end += "Playground timeout detected";
     }
 
-    let text =
-        crate::trim_text(&format!("{}```rust\n{}", flag_parse_errors, result), &text_end, async {
+    let text = crate::helpers::trim_text(
+        &format!("{}```rust\n{}", flag_parse_errors, result),
+        &text_end,
+        async {
             format!(
                 "Output too large. Playground link: <{}>",
                 api::url_from_gist(flags, &api::post_gist(ctx, code).await.unwrap_or_default()),
             )
-        })
-        .await;
+        },
+    )
+    .await;
 
-    let custom_button_id = ctx.id().to_string();
-    let mut response = ctx
-        .send(|b| {
+    let custom_id = ctx.id().to_string();
+
+    let response = ctx
+        .send({
+            let mut b = poise::CreateReply::default().content(text);
             if timeout {
-                b.components(|b| {
-                    b.create_action_row(|b| {
-                        b.create_button(|b| {
-                            b.label("Retry")
-                                .style(serenity::component::ButtonStyle::Primary)
-                                .custom_id(&custom_button_id)
-                        })
-                    })
-                });
+                b = b.components(vec![serenity::CreateActionRow::Buttons(vec![
+                    serenity::CreateButton::new(&custom_id)
+                        .label("Retry")
+                        .style(serenity::ButtonStyle::Primary),
+                ])]);
             }
-            b.content(text)
+            b
         })
-        .await?
-        .into_message()
         .await?;
+
     if let Some(retry_pressed) = response
-        .await_component_interaction(&ctx.discord().shard)
-        .filter(move |x| x.data.custom_id == custom_button_id)
+        .message()
+        .await?
+        .await_component_interaction(ctx)
+        .filter(move |mci: &ComponentInteraction| mci.data.custom_id == custom_id)
         .timeout(std::time::Duration::from_secs(600))
         .await
     {
-        retry_pressed
-            .create_interaction_response(ctx.discord(), |b| {
-                // b.kind(serenity::InteractionResponseType::Pong)
-                b.kind(serenity::interaction::InteractionResponseType::DeferredUpdateMessage)
-            })
-            .await?;
+        retry_pressed.defer(&ctx).await?;
         ctx.rerun().await?;
     } else {
         // If timed out, just remove the button
-        response.edit(ctx.discord(), |b| b.components(|b| b)).await?;
+        // Errors are ignored in case the reply was deleted
+        let _ = response
+			// TODO: Add code to remove button
+			.edit(ctx, poise::CreateReply::default())
+			.await;
     }
 
     Ok(())
@@ -312,18 +359,23 @@ pub fn strip_fn_main_boilerplate_from_formatted(text: &str) -> String {
 /// If the program doesn't compile, the compiler output is returned. If it did compile and run,
 /// compiler output (i.e. warnings) is shown only when show_compiler_warnings is true.
 pub fn format_play_eval_stderr(stderr: &str, show_compiler_warnings: bool) -> String {
+    // Extract core compiler output and remove boilerplate lines from top and bottom
     let compiler_output = extract_relevant_lines(stderr, &["Compiling playground"], &[
         "warning emitted",
         "warnings emitted",
         "warning: `playground` (bin \"playground\") generated",
+        "warning: `playground` (lib) generated",
         "error: could not compile",
         "error: aborting",
         "Finished ",
     ]);
 
-    if stderr.contains("Running `target") {
+    // If the program actually ran, compose compiler output and program stderr
+    // Using "Finished " here instead of "Running `target" because this method is also used by
+    // e.g. -Zunpretty=XXX family commands which don't actually run anything
+    if stderr.contains("Finished ") {
         // Program successfully compiled, so compiler output will be just warnings
-        let program_stderr = extract_relevant_lines(stderr, &["Running `target"], &[]);
+        let program_stderr = extract_relevant_lines(stderr, &["Finished ", "Running `target"], &[]);
 
         if show_compiler_warnings {
             // Concatenate compiler output and program stderr with a newline
@@ -336,6 +388,7 @@ pub fn format_play_eval_stderr(stderr: &str, show_compiler_warnings: bool) -> St
         } else {
             program_stderr.to_owned()
         }
+        .replace('`', "\u{200b}`")
     } else {
         // Program didn't get to run, so there must be an error, so we yield the compiler output
         // regardless of whether warn is enabled or not
@@ -343,7 +396,7 @@ pub fn format_play_eval_stderr(stderr: &str, show_compiler_warnings: bool) -> St
     }
 }
 
-pub fn stub_message(ctx: Context<'_>) -> String {
+pub fn stub_message(ctx: Context) -> String {
     let mut stub_message = String::from("_Running code on playground..._\n");
 
     if let Context::Prefix(ctx) = ctx {

@@ -1,59 +1,36 @@
+mod checks;
 mod crates;
 mod godbolt;
+mod helpers;
 mod misc;
 mod moderation;
 mod playground;
-mod showcase;
+mod types;
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Error;
+use types::{Context, Data};
 
 use poise::serenity_prelude as serenity;
 
-type Error = Box<dyn std::error::Error + Send + Sync>;
-type Context<'a> = poise::Context<'a, Data, Error>;
-
-// const EMBED_COLOR: (u8, u8, u8) = (0xf7, 0x4c, 0x00);
-const EMBED_COLOR: (u8, u8, u8) = (0xb7, 0x47, 0x00); // slightly less saturated
-
-/// In prefix commands, react with a red cross emoji. In slash commands, respond with a short
-/// explanation.
-async fn acknowledge_fail(error: poise::FrameworkError<'_, Data, Error>) {
-    if let poise::FrameworkError::Command { error, ctx } = error {
-        log::warn!("Reacting with red cross because of error: {}", error);
-
-        match ctx {
-            poise::Context::Prefix(ctx) => {
-                if let Err(e) = ctx.msg.react(ctx.discord, serenity::ReactionType::from('❌')).await
-                {
-                    log::warn!("Failed to react with red cross: {}", e);
-                }
-            },
-            poise::Context::Application(_) => {
-                if let Err(e) = ctx.say(format!("❌ {}", error)).await {
-                    log::warn!(
-                        "Failed to send failure acknowledgment slash command response: {}",
-                        e
-                    );
-                }
-            },
-        }
-    } else {
-        on_error(error).await;
-    }
-}
-
-async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
+async fn on_error(error: poise::FrameworkError<'_, types::Data, Error>) {
     log::warn!("Encountered error: {:?}", error);
     if let poise::FrameworkError::ArgumentParse { error, ctx, .. } = error {
         let response = if error.is::<poise::CodeBlockError>() {
             "\
-Missing code block. Please use the following markdown:
-\\`code here\\`
-or
-\\`\\`\\`rust
-code here
-\\`\\`\\`"
-                .to_owned()
-        } else if let Some(multiline_help) = ctx.command().help_text {
-            format!("**{}**\n{}", error, multiline_help())
+            Missing code block. Please use the following markdown:
+            `` `code here` ``
+            or
+            ```ansi
+            `\x1b[0m`\x1b[0m`rust
+            code here
+            `\x1b[0m`\x1b[0m`
+            ```"
+            .to_owned()
+        } else if let Some(multiline_help) = &ctx.command().help_text {
+            format!("**{}**\n{}", error, multiline_help)
         } else {
             error.to_string()
         };
@@ -61,55 +38,24 @@ code here
         if let Err(e) = ctx.say(response).await {
             log::warn!("{}", e)
         }
-    } else if let poise::FrameworkError::Command { ctx, error } = error {
+    } else if let poise::FrameworkError::Command { ctx, error, .. } = error {
         if let Err(e) = ctx.say(error.to_string()).await {
             log::warn!("{}", e)
         }
     }
 }
 
-async fn listener(
-    ctx: &serenity::Context,
-    event: &poise::Event<'_>,
-    data: &Data,
-) -> Result<(), Error> {
-    match event {
-        poise::Event::MessageUpdate { event, .. } => {
-            showcase::try_update_showcase_message(ctx, data, event.id).await?
-        },
-        poise::Event::MessageDelete { deleted_message_id, .. } => {
-            showcase::try_delete_showcase_message(ctx, data, *deleted_message_id).await?
-        },
-        _ => {},
-    }
+async fn on_pre_command(ctx: Context<'_>) {
+    let channel_name =
+        &ctx.channel_id().name(&ctx).await.unwrap_or_else(|_| "<unknown>".to_owned());
+    let author = &ctx.author().name;
 
-    Ok(())
-}
-
-#[derive(Clone, Debug)]
-pub struct ActiveSlowmode {
-    previous_slowmode_rate: u64,
-    duration: u64,
-    rate: u64,
-    /// The slowmode command verifies this value after the sleep and before the slowdown lift,
-    /// to make sure that no new slowmode command has been invoked since
-    invocation_time: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug)]
-pub struct Data {
-    bot_user_id: serenity::UserId,
-    #[allow(dead_code)] // might add back in
-    mod_role_id: serenity::RoleId,
-    reports_channel: Option<serenity::ChannelId>,
-    showcase_channel: serenity::ChannelId,
-    bot_start_time: std::time::Instant,
-    http: reqwest::Client,
-    database: sqlx::SqlitePool,
-    godbolt_rust_targets: std::sync::Mutex<godbolt::GodboltTargets>,
-    godbolt_cpp_targets: std::sync::Mutex<godbolt::GodboltTargets>,
-    active_slowmodes:
-        std::sync::Mutex<std::collections::HashMap<serenity::ChannelId, ActiveSlowmode>>,
+    log::info!(
+        "{} in {} used slash command '{}'",
+        author,
+        channel_name,
+        &ctx.invoked_command_name()
+    );
 }
 
 fn env_var<T: std::str::FromStr>(name: &str) -> Result<T, Error>
@@ -117,18 +63,21 @@ where
     T::Err: std::fmt::Display,
 {
     Ok(std::env::var(name)
-        .map_err(|_| format!("Missing {}", name))?
+        .map_err(|_| anyhow::anyhow!("Missing {}", name))?
         .parse()
-        .map_err(|e| format!("Invalid {}: {}", name, e))?)
+        .map_err(|e| anyhow::anyhow!("Invalid {}: {}", name, e))?)
 }
 
 async fn app() -> Result<(), Error> {
     let discord_token = env_var::<String>("DISCORD_TOKEN")?;
     let mod_role_id = env_var("MOD_ROLE_ID")?;
     let reports_channel = env_var("REPORTS_CHANNEL_ID").ok();
-    let showcase_channel = env_var("SHOWCASE_CHANNEL_ID")?;
     let database_url = env_var::<String>("DATABASE_URL")?;
-    let custom_prefixes = env_var("CUSTOM_PREFIXES")?;
+    let discord_guild_id = env_var("DISCORD_SERVER_ID")?;
+
+    let intents = serenity::GatewayIntents::non_privileged()
+        | serenity::GatewayIntents::GUILD_MEMBERS
+        | serenity::GatewayIntents::MESSAGE_CONTENT;
 
     let mut options = poise::FrameworkOptions {
         commands: vec![
@@ -153,7 +102,6 @@ async fn app() -> Result<(), Error> {
             moderation::cleanup(),
             moderation::move_(),
             moderation::slowmode(),
-            showcase::showcase(),
             misc::source(),
             misc::help(),
             misc::register(),
@@ -171,66 +119,43 @@ async fn app() -> Result<(), Error> {
                 poise::Prefix::Literal("🦀"),
                 poise::Prefix::Literal("<:ferris:358652670585733120> "),
                 poise::Prefix::Literal("<:ferris:358652670585733120>"),
-                poise::Prefix::Literal("<:ferris:1013555299271061574> "),
-                poise::Prefix::Literal("<:ferris:1013555299271061574>"),
-                poise::Prefix::Literal("<@1013555299271061574> "),
-                poise::Prefix::Literal("<@1013555299271061574>"),
+                poise::Prefix::Literal("<:ferrisballSweat:678714352450142239> "),
+                poise::Prefix::Literal("<:ferrisballSweat:678714352450142239>"),
+                poise::Prefix::Literal("<:ferrisCat:1183779700485664820> "),
+                poise::Prefix::Literal("<:ferrisCat:1183779700485664820>"),
+                poise::Prefix::Literal("<:ferrisOwO:579331467000283136> "),
+                poise::Prefix::Literal("<:ferrisOwO:579331467000283136>"),
                 poise::Prefix::Regex(
-                    "(yo|hey) (crab|ferris|fewwis),? can you (please |pwease )?".parse().unwrap(),
+                    "(yo |hey )?(crab|ferris|fewwis),? can you (please |pwease )?".parse().unwrap(),
                 ),
             ],
-            edit_tracker: Some(poise::EditTracker::for_timespan(std::time::Duration::from_secs(
-                3600 * 24 * 2,
+            edit_tracker: Some(Arc::new(poise::EditTracker::for_timespan(
+                Duration::from_secs(60 * 5), // 5 minutes
             ))),
-            stripped_dynamic_prefix: if custom_prefixes {
-                Some(|ctx, msg, data| Box::pin(prefixes::try_strip_prefix(ctx, msg, data)))
-            } else {
-                None
-            },
             ..Default::default()
         },
-        pre_command: |ctx| {
+        // The global error handler for all error cases that may occur
+        on_error: |error| Box::pin(on_error(error)),
+        // This code is run before every command
+        pre_command: |ctx| Box::pin(on_pre_command(ctx)),
+        // This code is run after a command if it was successful (returned Ok)
+        post_command: |ctx| {
             Box::pin(async move {
-                let channel_name = ctx
-                    .channel_id()
-                    .name(&ctx.discord())
-                    .await
-                    .unwrap_or_else(|| "<unknown>".to_owned());
-                let author = ctx.author().tag();
-
-                match ctx {
-                    poise::Context::Prefix(ctx) => {
-                        log::info!("{} in {}: {}", author, channel_name, &ctx.msg.content);
-                    },
-                    poise::Context::Application(ctx) => {
-                        let command_name = &ctx.interaction.data().name;
-
-                        log::info!(
-                            "{} in {} used slash command '{}'",
-                            author,
-                            channel_name,
-                            command_name
-                        );
-                    },
-                }
+                log::info!("Executed command {}!", ctx.command().qualified_name);
             })
         },
-        on_error: |error| Box::pin(on_error(error)),
-        listener: |ctx, event, _framework, data| Box::pin(listener(ctx, event, data)),
+        // Every command invocation must pass this check to continue execution
+        command_check: Some(|_ctx| Box::pin(async move { Ok(true) })),
+        // Enforce command checks even for owners (enforced by default)
+        // Set to true to bypass checks, which is useful for testing
+        skip_checks_for_owners: false,
+        event_handler: |ctx, event, _framework, data| {
+            Box::pin(async move { event_handler(ctx, event, data).await })
+        },
+        // Disallow all mentions (except those to the replied user) by default
+        allowed_mentions: Some(serenity::CreateAllowedMentions::new().replied_user(true)),
         ..Default::default()
     };
-
-    if custom_prefixes {
-        options.commands.push(poise::Command {
-            subcommands: vec![
-                prefixes::prefix_add(),
-                prefixes::prefix_remove(),
-                prefixes::prefix_list(),
-                prefixes::prefix_reset(),
-            ],
-            ..prefixes::prefix()
-        });
-    }
 
     if reports_channel.is_some() {
         options.commands.push(moderation::report());
@@ -244,76 +169,51 @@ async fn app() -> Result<(), Error> {
         .await?;
     sqlx::migrate!("./migrations").run(&database).await?;
 
-    poise::Framework::builder()
-        .token(discord_token)
-        .user_data_setup(move |ctx, bot, _framework| {
-            Box::pin(async move {
-                ctx.set_activity(serenity::Activity::listening("?help")).await;
-                Ok(Data {
-                    bot_user_id: bot.user.id,
-                    mod_role_id,
-                    reports_channel,
-                    showcase_channel,
-                    bot_start_time: std::time::Instant::now(),
-                    http: reqwest::Client::new(),
-                    database,
-                    godbolt_rust_targets: std::sync::Mutex::new(godbolt::GodboltTargets::default()),
-                    godbolt_cpp_targets: std::sync::Mutex::new(godbolt::GodboltTargets::default()),
-                    active_slowmodes: std::sync::Mutex::new(std::collections::HashMap::new()),
+    let framework =
+        poise::Framework::builder()
+            .setup(move |ctx, bot, framework| {
+                Box::pin(async move {
+                    let data = Data {
+                        bot_user_id: bot.user.id,
+                        discord_guild_id,
+                        mod_role_id,
+                        reports_channel,
+                        bot_start_time: std::time::Instant::now(),
+                        http: reqwest::Client::new(),
+                        database,
+                        godbolt_rust_targets: std::sync::Mutex::new(
+                            godbolt::GodboltMetadata::default(),
+                        ),
+                        godbolt_cpp_targets: std::sync::Mutex::new(
+                            godbolt::GodboltMetadata::default(),
+                        ),
+                        active_slowmodes: std::sync::Mutex::new(std::collections::HashMap::new()),
+                    };
+
+                    // log::debug!("Registering commands...");
+                    // poise::builtins::register_in_guild(
+                    // ctx,
+                    // &framework.options().commands,
+                    // data.discord_guild_id,
+                    // )
+                    // .await?;
+
+                    log::debug!("Setting activity text");
+                    ctx.set_activity(Some(serenity::ActivityData::listening("?help")));
+
+                    Ok(data)
                 })
             })
-        })
-        .options(options)
-        .intents(
-            serenity::GatewayIntents::non_privileged()
-                | serenity::GatewayIntents::GUILD_MEMBERS
-                | serenity::GatewayIntents::MESSAGE_CONTENT,
-        )
-        .run()
+            .options(options)
+            .build();
+
+    let _ = serenity::ClientBuilder::new(discord_token, intents)
+        .framework(framework)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?
+        .start()
         .await?;
-    Ok(())
-}
 
-async fn find_custom_emoji(ctx: Context<'_>, emoji_name: &str) -> Option<serenity::Emoji> {
-    ctx.guild_id()?
-        .to_guild_cached(ctx.discord())?
-        .emojis
-        .values()
-        .find(|emoji| emoji.name.eq_ignore_ascii_case(emoji_name))
-        .cloned()
-}
-
-/// In prefix commands, react with a custom emoji from the guild, or fallback to a default Unicode
-/// emoji.
-///
-/// In slash commands, currently nothing happens.
-async fn acknowledge_success(
-    ctx: Context<'_>,
-    emoji_name: &str,
-    fallback: char,
-) -> Result<(), Error> {
-    let emoji = find_custom_emoji(ctx, emoji_name).await;
-    match ctx {
-        Context::Prefix(ctx) => {
-            let reaction = emoji
-                .map(serenity::ReactionType::from)
-                .unwrap_or_else(|| serenity::ReactionType::from(fallback));
-
-            ctx.msg.react(ctx.discord, reaction).await?;
-        },
-        Context::Application(_) => {
-            let msg_content = match emoji {
-                Some(e) => e.to_string(),
-                None => fallback.to_string(),
-            };
-            if let Ok(reply) = ctx.say(msg_content).await {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                let msg = reply.message().await?;
-                // ignore errors as to not fail if ephemeral
-                let _: Result<_, _> = msg.delete(ctx.discord()).await;
-            }
-        },
-    }
     Ok(())
 }
 
@@ -373,13 +273,13 @@ async fn trim_text(
     }
 }
 
-async fn reply_potentially_long_text(
-    ctx: Context<'_>,
-    text_body: &str,
-    text_end: &str,
-    truncation_msg_future: impl std::future::Future<Output = String>,
+async fn event_handler(
+    ctx: &serenity::Context,
+    event: &serenity::FullEvent,
+    data: &Data,
 ) -> Result<(), Error> {
-    ctx.say(trim_text(text_body, text_end, truncation_msg_future).await).await?;
+    log::debug!("Got an event in event handler: {:?}", event.snake_case_name());
+
     Ok(())
 }
 

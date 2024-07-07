@@ -1,35 +1,16 @@
-use crate::{Context, Error};
+use anyhow::Error;
+use poise::serenity_prelude::EditChannel;
 
-async fn check_is_moderator(ctx: Context<'_>) -> Result<bool, Error> {
-    // Retrieve via HTTP to make sure it's up-to-date
-    let author = ctx
-        .discord()
-        .http
-        .get_member(
-            ctx.guild_id().ok_or("This command only works inside guilds")?.0,
-            ctx.author().id.0,
-        )
-        .await?;
+use crate::types::Context;
 
-    Ok(if author.roles.contains(&ctx.data().mod_role_id) {
-        true
-    } else {
-        ctx.send(|b| b.ephemeral(true).content("This command is only available to moderators"))
-            .await?;
-        false
-    })
-}
-
-async fn immediately_lift_slowmode(ctx: Context<'_>) -> Result<(), Error> {
+async fn immediately_lift_slowmode(ctx: Context<'_>) -> anyhow::Result<()> {
     let active_slowmode = ctx.data().active_slowmodes.lock().unwrap().remove(&ctx.channel_id());
 
     match active_slowmode {
         Some(active_slowmode) => {
-            ctx.channel_id()
-                .edit(ctx.discord(), |b| {
-                    b.rate_limit_per_user(active_slowmode.previous_slowmode_rate)
-                })
-                .await?;
+            let builder = EditChannel::new()
+                .rate_limit_per_user(active_slowmode.previous_slowmode_rate.try_into().unwrap());
+            ctx.channel_id().edit(&ctx, builder).await?;
             ctx.say("Restored slowmode to previous level").await?;
         },
         None => {
@@ -45,10 +26,10 @@ async fn register_slowmode(
     duration_argument: Option<u64>,
     rate_argument: Option<u64>,
 ) -> Result<(u64, u64), Error> {
-    let current_slowmode_rate = match ctx.channel_id().to_channel(ctx.discord()).await {
+    let current_slowmode_rate = match ctx.channel_id().to_channel(&ctx).await {
         Ok(channel) => channel
             .guild()
-            .ok_or("This command only works inside guilds")?
+            .ok_or(anyhow::anyhow!("This command only works inside guilds"))?
             .rate_limit_per_user
             .unwrap_or(0),
         Err(e) => {
@@ -62,14 +43,14 @@ async fn register_slowmode(
 
     // If we're overwriting an existing slowmode command, the channel's current slowmode rate
     // is not the original one, so we check the existing entry
-    let previous_slowmode_rate =
-        already_active_slowmode.map_or(current_slowmode_rate, |s| s.previous_slowmode_rate);
+    let previous_slowmode_rate = already_active_slowmode
+        .map_or(current_slowmode_rate, |s| s.previous_slowmode_rate.try_into().unwrap());
     let duration =
         duration_argument.or_else(|| Some(already_active_slowmode?.duration)).unwrap_or(30);
     let rate = rate_argument.or_else(|| Some(already_active_slowmode?.rate)).unwrap_or(15);
 
-    active_slowmodes.insert(ctx.channel_id(), crate::ActiveSlowmode {
-        previous_slowmode_rate,
+    active_slowmodes.insert(ctx.channel_id(), crate::types::ActiveSlowmode {
+        previous_slowmode_rate: previous_slowmode_rate.into(),
         duration,
         rate,
         invocation_time: *ctx.created_at(),
@@ -101,7 +82,10 @@ async fn restore_slowmode_rate(ctx: Context<'_>) -> Result<(), Error> {
     };
 
     log::info!("Restoring slowmode rate to {}", previous_slowmode_rate);
-    ctx.channel_id().edit(ctx.discord(), |b| b.rate_limit_per_user(previous_slowmode_rate)).await?;
+
+    let builder =
+        EditChannel::new().rate_limit_per_user(previous_slowmode_rate.try_into().unwrap());
+    ctx.channel_id().edit(&ctx, builder).await?;
     ctx.data().active_slowmodes.lock().unwrap().remove(&ctx.channel_id());
 
     Ok(())
@@ -123,7 +107,7 @@ pub async fn slowmode(
     #[description = "How many seconds a user has to wait before sending another message (0-120)"]
     rate: Option<u64>,
 ) -> Result<(), Error> {
-    if !check_is_moderator(ctx).await? {
+    if !crate::checks::check_is_moderator(ctx).await? {
         return Ok(());
     }
 
@@ -138,7 +122,8 @@ pub async fn slowmode(
     let (duration, rate) = register_slowmode(ctx, duration, rate).await?;
 
     // Apply slowmode
-    ctx.channel_id().edit(ctx.discord(), |b| b.rate_limit_per_user(rate)).await?;
+    let builder = EditChannel::new().rate_limit_per_user(rate.try_into().unwrap());
+    ctx.channel_id().edit(&ctx, builder).await?;
 
     // Confirmation message
     let _: Result<_, _> = ctx

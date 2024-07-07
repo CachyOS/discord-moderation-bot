@@ -1,6 +1,9 @@
+use anyhow::Error;
+
+use crate::types::Context;
+
 use super::api::*;
 use super::util::*;
-use crate::{Context, Error};
 
 // play and eval work similarly, so this function abstracts over the two
 async fn play_or_eval(
@@ -12,14 +15,17 @@ async fn play_or_eval(
 ) -> Result<(), Error> {
     ctx.say(stub_message(ctx)).await?;
 
-    let code = maybe_wrap(&code.code, result_handling);
+    let code = maybe_wrapped(
+        &code.code,
+        result_handling,
+        ctx.prefix().contains("Sweat"),
+        ctx.prefix().contains("OwO") || ctx.prefix().contains("Cat"),
+    );
     let (mut flags, flag_parse_errors) = parse_flags(flags);
 
     if force_warnings {
         flags.warn = true;
     }
-
-    let crate_type = if code.contains("fn main") { CrateType::Binary } else { CrateType::Library };
 
     let mut result: PlayResult = ctx
         .data()
@@ -28,7 +34,7 @@ async fn play_or_eval(
         .json(&PlaygroundRequest {
             code: &code,
             channel: flags.channel,
-            crate_type,
+            crate_type: CrateType::Binary,
             edition: flags.edition,
             mode: flags.mode,
             tests: false,
@@ -66,10 +72,10 @@ pub fn play_help() -> String {
 
 /// Compile and run Rust code with warnings
 #[poise::command(prefix_command,
-    track_edits,
-    hide_in_help, // don't clutter help menu with something that ?play can do too
-    help_text_fn = "playwarn_help",
-    category = "Playground"
+track_edits,
+hide_in_help, // don't clutter help menu with something that ?play can do too
+help_text_fn = "playwarn_help",
+category = "Playground"
 )]
 pub async fn playwarn(
     ctx: Context<'_>,

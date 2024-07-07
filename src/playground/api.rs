@@ -1,9 +1,11 @@
-use crate::{Context, Error};
-
-use reqwest::header;
-use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
+
+use anyhow::{anyhow, bail, Error};
+use reqwest::header;
+use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::types::Context;
 
 pub struct CommandFlags {
     pub channel: Channel,
@@ -46,6 +48,7 @@ pub struct FormatRequest<'a> {
     pub code: &'a str,
     pub edition: Edition,
 }
+
 #[derive(Debug, Deserialize)]
 pub struct FormatResponse {
     pub success: bool,
@@ -54,8 +57,62 @@ pub struct FormatResponse {
     pub stderr: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompileRequest<'a> {
+    pub assembly_flavor: AssemblyFlavour,
+    pub backtrace: bool,
+    pub channel: Channel,
+    pub code: &'a str,
+    pub crate_type: CrateType,
+    pub demangle_assembly: DemangleAssembly,
+    pub edition: Edition,
+    pub mode: Mode,
+    pub process_assembly: ProcessAssembly,
+    pub target: CompileTarget,
+    pub tests: bool,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssemblyFlavour {
+    #[default]
+    Intel,
+    #[allow(dead_code)]
+    Att,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DemangleAssembly {
+    #[default]
+    Demangle,
+    #[allow(dead_code)]
+    Mangle,
+}
+
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessAssembly {
+    #[default]
+    Filter,
+    #[allow(dead_code)]
+    Raw,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(unused)]
+pub enum CompileTarget {
+    Mir,
+}
+
+#[allow(unused)]
+pub type CompileResponse = FormatResponse;
+
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(unused)]
 pub enum Channel {
     Stable,
     Beta,
@@ -70,7 +127,7 @@ impl FromStr for Channel {
             "stable" => Ok(Channel::Stable),
             "beta" => Ok(Channel::Beta),
             "nightly" => Ok(Channel::Nightly),
-            _ => Err(format!("invalid release channel `{}`", s).into()),
+            _ => bail!("invalid release channel `{}`", s),
         }
     }
 }
@@ -93,12 +150,13 @@ impl FromStr for Edition {
             "2015" => Ok(Edition::E2015),
             "2018" => Ok(Edition::E2018),
             "2021" => Ok(Edition::E2021),
-            _ => Err(format!("invalid edition `{}`", s).into()),
+            _ => bail!("invalid edition `{}`", s),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
+#[allow(unused)]
 pub enum CrateType {
     #[serde(rename = "bin")]
     Binary,
@@ -120,7 +178,7 @@ impl FromStr for Mode {
         match s {
             "debug" => Ok(Mode::Debug),
             "release" => Ok(Mode::Release),
-            _ => Err(format!("invalid compilation mode `{}`", s).into()),
+            _ => bail!("invalid compilation mode `{}`", s),
         }
     }
 }
@@ -172,7 +230,7 @@ pub async fn post_gist(ctx: Context<'_>, code: &str) -> Result<String, Error> {
     let mut resp: HashMap<String, String> = resp.json().await?;
     log::info!("gist response: {:?}", resp);
 
-    let gist_id = resp.remove("id").ok_or("no gist found")?;
+    let gist_id = resp.remove("id").ok_or(anyhow!("no gist found"))?;
     Ok(gist_id)
 }
 

@@ -4,9 +4,9 @@ use poise::serenity_prelude as serenity;
 /// Links to the bot GitHub repo
 #[poise::command(
     prefix_command,
-    discard_spare_arguments,
     slash_command,
-    category = "Miscellaneous"
+    category = "Miscellaneous",
+    discard_spare_arguments
 )]
 pub async fn source(ctx: Context<'_>) -> Result<(), Error> {
     ctx.say("https://github.com/cachyos/discord-moderation-bot").await?;
@@ -14,7 +14,7 @@ pub async fn source(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show this menu
-#[poise::command(prefix_command, track_edits, slash_command, category = "Miscellaneous")]
+#[poise::command(prefix_command, slash_command, category = "Miscellaneous", track_edits)]
 pub async fn help(
     ctx: Context<'_>,
     #[description = "Specific command to show help about"]
@@ -38,7 +38,12 @@ You can edit your message to the bot and the bot will edit its response.";
 /// Register slash commands in this guild or globally
 ///
 /// Run with no arguments to register in guild, run with argument "global" to register globally.
-#[poise::command(prefix_command, hide_in_help, category = "Miscellaneous")]
+#[poise::command(
+    prefix_command,
+    hide_in_help,
+    category = "Miscellaneous",
+    check = "crate::checks::check_is_moderator"
+)]
 pub async fn register(ctx: Context<'_>, #[flag] global: bool) -> Result<(), Error> {
     poise::builtins::register_application_commands(ctx, global).await?;
 
@@ -90,9 +95,9 @@ pub async fn revision(ctx: Context<'_>) -> Result<(), Error> {
 #[poise::command(
     prefix_command,
     slash_command,
-    hide_in_help,
+    category = "Miscellaneous",
     track_edits,
-    category = "Miscellaneous"
+    hide_in_help
 )]
 pub async fn conradluget(
     ctx: Context<'_>,
@@ -109,32 +114,32 @@ pub async fn conradluget(
         .decode()
         .expect("failed to load image")
     });
-    static FONT: Lazy<rusttype::Font> = Lazy::new(|| {
-        rusttype::Font::try_from_bytes(include_bytes!("../assets/OpenSans.ttf"))
+    static FONT: Lazy<ab_glyph::FontRef> = Lazy::new(|| {
+        ab_glyph::FontRef::try_from_slice(include_bytes!("../assets/OpenSans.ttf"))
             .expect("failed to load font")
     });
+
+    let text = format!("Get {}", text);
 
     let image = imageproc::drawing::draw_text(
         &*BASE_IMAGE,
         image::Rgba([201, 209, 217, 255]),
         57,
         286,
-        rusttype::Scale::uniform(65.0),
-        &FONT,
-        &format!("Get {}", text),
+        65.0,
+        &*FONT,
+        &text,
     );
 
     let mut img_bytes = Vec::with_capacity(200_000); // preallocate 200kB for the img
     image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut std::io::Cursor::new(&mut img_bytes), image::ImageOutputFormat::Png)?;
+        .write_to(&mut std::io::Cursor::new(&mut img_bytes), image::ImageFormat::Png)?;
 
-    ctx.send(|b| {
-        b.attachment(serenity::AttachmentType::Bytes {
-            data: img_bytes.into(),
-            filename: "unnamed.png".into(),
-        })
-    })
-    .await?;
+    let filename = text + ".png";
+
+    let attachment = serenity::CreateAttachment::bytes(img_bytes, filename);
+
+    ctx.channel_id().send_files(ctx, vec![attachment], serenity::CreateMessage::new()).await?;
 
     Ok(())
 }
@@ -164,8 +169,8 @@ pub async fn nicosay(
         .decode()
         .expect("failed to load image")
     });
-    static FONT: Lazy<rusttype::Font> = Lazy::new(|| {
-        rusttype::Font::try_from_bytes(include_bytes!("../assets/OpenSans.ttf"))
+    static FONT: Lazy<ab_glyph::FontRef> = Lazy::new(|| {
+        ab_glyph::FontRef::try_from_slice(include_bytes!("../assets/OpenSans.ttf"))
             .expect("failed to load font")
     });
 
@@ -174,22 +179,20 @@ pub async fn nicosay(
         image::Rgba([201, 209, 217, 255]),
         170,
         13,
-        rusttype::Scale::uniform(28.0),
-        &FONT,
+        28.0,
+        &*FONT,
         &text.to_string(),
     );
 
     let mut img_bytes = Vec::with_capacity(200_000); // preallocate 200kB for the img
     image::DynamicImage::ImageRgba8(image)
-        .write_to(&mut std::io::Cursor::new(&mut img_bytes), image::ImageOutputFormat::Png)?;
+        .write_to(&mut std::io::Cursor::new(&mut img_bytes), image::ImageFormat::Png)?;
 
-    ctx.send(|b| {
-        b.attachment(serenity::AttachmentType::Bytes {
-            data: img_bytes.into(),
-            filename: "unnamed.png".into(),
-        })
-    })
-    .await?;
+    let filename = text + ".png";
+
+    let attachment = serenity::CreateAttachment::bytes(img_bytes, filename);
+
+    ctx.channel_id().send_files(ctx, vec![attachment], serenity::CreateMessage::new()).await?;
 
     Ok(())
 }

@@ -1,5 +1,9 @@
 use super::GodboltMode;
-use crate::{Context, Data, Error};
+
+use crate::types::{Context, Data};
+
+use anyhow::{anyhow, Error};
+use poise::serenity_prelude as serenity;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,9 +14,26 @@ struct GodboltTarget {
     instruction_set: String,
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GodboltLibraryVersion {
+    #[allow(unused)]
+    id: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[allow(unused)]
+struct GodboltLibrary {
+    #[allow(unused)]
+    id: String,
+    #[allow(unused)]
+    versions: Vec<GodboltLibraryVersion>,
+}
+
 #[derive(Default, Debug)]
-pub struct GodboltTargets {
+pub struct GodboltMetadata {
     targets: Vec<GodboltTarget>,
+    #[allow(unused)]
+    libraries: Vec<GodboltLibrary>,
     last_update_time: Option<std::time::Instant>,
 }
 
@@ -28,34 +49,38 @@ impl GodboltTarget {
     }
 }
 
-async fn update_godbolt_targets(data: &Data, lang: &'static str) -> Result<(), Error> {
+async fn update_godbolt_metadata(
+    data: &crate::types::Data,
+    lang: &'static str,
+) -> Result<(), Error> {
     let last_update_time = match lang {
         "rust" => data.godbolt_rust_targets.lock().unwrap().last_update_time,
         "c++" => data.godbolt_cpp_targets.lock().unwrap().last_update_time,
         &_ => todo!(),
     };
+
     let needs_update = if let Some(last_update_time) = last_update_time {
-        // Get the time to wait between each update of the godbolt targets list
+        // Get the time to wait between each update of the godbolt metadata
         let update_period = std::env::var("GODBOLT_UPDATE_DURATION")
-            .ok()
-            .and_then(|duration| duration.parse::<u64>().ok())
-            .map(std::time::Duration::from_secs)
-            // Currently set to 12 hours
-            .unwrap_or_else(|| std::time::Duration::from_secs(60 * 60 * 12));
+			.ok()
+			.and_then(|duration| duration.parse::<u64>().ok())
+			.map(std::time::Duration::from_secs)
+			// Currently set to 12 hours
+			.unwrap_or_else(|| std::time::Duration::from_secs(60 * 60 * 12));
 
         let time_since_update =
             std::time::Instant::now().saturating_duration_since(last_update_time);
         let needs_update = time_since_update >= update_period;
         if needs_update {
             log::info!(
-                "godbolt targets were last updated {:#?} ago, updating them",
+                "godbolt metadata was last updated {:#?} ago, updating it",
                 time_since_update,
             );
         }
 
         needs_update
     } else {
-        log::info!("godbolt targets haven't yet been updated, fetching them");
+        log::info!("godbolt metadata hasn't yet been updated, fetching it");
 
         true
     };
@@ -67,10 +92,8 @@ async fn update_godbolt_targets(data: &Data, lang: &'static str) -> Result<(), E
             .get(format!("https://godbolt.org/api/compilers/{}", lang))
             .header(reqwest::header::ACCEPT, "application/json");
         let mut targets: Vec<GodboltTarget> = request.send().await?.json().await?;
-        log::info!("got {} godbolt targets", targets.len());
-
+        // Clean up the data we've gotten from the request
         if lang == "rust" {
-            // Clean up the data we've gotten from the request
             for target in &mut targets {
                 target.clean_request_data();
                 if let Some(semver) = target.semver.strip_prefix("rustc ") {
@@ -84,36 +107,55 @@ async fn update_godbolt_targets(data: &Data, lang: &'static str) -> Result<(), E
             }
         }
 
-        let mut godbolt_targets = match lang {
-            "rust" => data.godbolt_rust_targets.lock().unwrap(),
-            "c++" => data.godbolt_cpp_targets.lock().unwrap(),
+        let godbolt_targets = match lang {
+            "rust" => &data.godbolt_rust_targets,
+            "c++" => &data.godbolt_cpp_targets,
             &_ => todo!(),
         };
-        godbolt_targets.targets = targets;
-        godbolt_targets.last_update_time = Some(std::time::Instant::now());
 
-        log::info!("finished updating godbolt targets list");
+        let request = data
+            .http
+            .get(format!("https://godbolt.org/api/libraries/{}", lang))
+            .header(reqwest::header::ACCEPT, "application/json");
+        let response = request.send().await?;
+        let libraries: Vec<GodboltLibrary> = response.json().await?;
+
+        log::info!(
+            "updating {} godbolt metadata: {} targets, {} libraries",
+            lang,
+            targets.len(),
+            libraries.len()
+        );
+        *godbolt_targets.lock().unwrap() = GodboltMetadata {
+            targets,
+            libraries,
+            last_update_time: Some(std::time::Instant::now()),
+        };
     }
 
     Ok(())
 }
 
-async fn fetch_godbolt_rust_targets(data: &Data) -> Vec<GodboltTarget> {
+async fn fetch_godbolt_rust_metadata(
+    data: &Data,
+) -> impl std::ops::Deref<Target = GodboltMetadata> + '_ {
     // If we encounter an error while updating the targets list, just log it
-    if let Err(error) = update_godbolt_targets(data, "rust").await {
+    if let Err(error) = update_godbolt_metadata(data, "rust").await {
         log::error!("failed to update godbolt targets list: {:?}", error);
     }
 
-    data.godbolt_rust_targets.lock().unwrap().targets.clone()
+    data.godbolt_rust_targets.lock().unwrap()
 }
 
-async fn fetch_godbolt_cpp_targets(data: &Data) -> Vec<GodboltTarget> {
+async fn fetch_godbolt_cpp_metadata(
+    data: &Data,
+) -> impl std::ops::Deref<Target = GodboltMetadata> + '_ {
     // If we encounter an error while updating the targets list, just log it
-    if let Err(error) = update_godbolt_targets(data, "c++").await {
+    if let Err(error) = update_godbolt_metadata(data, "c++").await {
         log::error!("failed to update godbolt targets list: {:?}", error);
     }
 
-    data.godbolt_cpp_targets.lock().unwrap().targets.clone()
+    data.godbolt_cpp_targets.lock().unwrap()
 }
 
 // Generates godbolt-compatible compiler identifier and flags from command input
@@ -126,7 +168,7 @@ pub(super) async fn compiler_id_and_flags(
     match language {
         "rust" => rustc_id_and_flags(data, params, mode).await,
         "c++" => cpp_id_and_flags(data, params, mode).await,
-        &_ => Err(Box::from("Unsupported language. Valid: 'rust', 'c++'.")),
+        &_ => Err(anyhow::anyhow!("Unsupported language. Valid: 'rust', 'c++'.")),
     }
 }
 
@@ -140,11 +182,12 @@ async fn rustc_id_and_flags(
     mode: GodboltMode,
 ) -> Result<(String, String), Error> {
     let rustc = params.get("rustc").unwrap_or("nightly");
-    let targets = fetch_godbolt_rust_targets(data).await;
-    let target = targets.into_iter().find(|target| target.semver == rustc.trim()).ok_or(
-        "the `rustc` argument should be a version specifier like `nightly` `beta` or `1.45.2`. \
-         Run ?targets_rust for a full list",
-    )?;
+    let targets = fetch_godbolt_rust_metadata(data).await.targets.clone();
+    let target =
+        targets.into_iter().find(|target| target.semver == rustc.trim()).ok_or(anyhow::anyhow!(
+            "the `rustc` argument should be a version specifier like `nightly` `beta` or \
+             `1.45.2`. Run ?targets_rust for a full list",
+        ))?;
 
     let mut flags = params.get("flags").unwrap_or("-Copt-level=3 --edition=2021").to_owned();
     if mode == GodboltMode::LlvmIr {
@@ -164,10 +207,12 @@ async fn cpp_id_and_flags(
     _mode: GodboltMode,
 ) -> Result<(String, String), Error> {
     let cppcompiler = params.get("compiler").unwrap_or("clang_trunk");
-    let targets = fetch_godbolt_cpp_targets(data).await;
+    let targets = fetch_godbolt_cpp_metadata(data).await.targets.clone();
     let target = targets.into_iter().find(|target| target.id == cppcompiler.trim()).ok_or(
-        "the `compiler` argument should be a id specifier like `clang_trunk` `gsnapshot` or \
-         `g122`. Run ?targets_cpp  for a full list",
+        anyhow::anyhow!(
+            "the `compiler` argument should be a id specifier like `clang_trunk` `gsnapshot` or \
+             `g122`. Run ?targets_cpp  for a full list",
+        ),
     )?;
 
     let flags = params.get("flags").unwrap_or("-std=c++20 -O3").to_owned();
@@ -222,50 +267,50 @@ impl<'a> From<&'a str> for SemverRanking<'a> {
 /// Lists all available godbolt rustc targets
 #[poise::command(prefix_command, slash_command, broadcast_typing, category = "Godbolt")]
 pub async fn targets_rust(ctx: Context<'_>) -> Result<(), Error> {
-    let mut targets = fetch_godbolt_rust_targets(ctx.data()).await;
+    let mut targets = fetch_godbolt_rust_metadata(ctx.data()).await.targets.clone();
 
     // Can't use sort_by_key because https://github.com/rust-lang/rust/issues/34162
     targets.sort_unstable_by(|lhs, rhs| {
         SemverRanking::from(&*lhs.semver).cmp(&SemverRanking::from(&*rhs.semver))
     });
 
-    ctx.send(|msg| {
-        msg.embed(|embed| {
-            embed.title("Godbolt Rust Targets").fields(targets.into_iter().map(|target| {
+    ctx.send(poise::CreateReply::default().embed(
+        serenity::CreateEmbed::default().title("Godbolt Rust Targets").fields(
+            targets.into_iter().map(|target| {
                 (
                     target.semver,
                     format!("{} (runs on {})", target.name, target.instruction_set),
                     true,
                 )
-            }))
-        })
-    })
+            }),
+        ),
+    ))
     .await?;
 
     Ok(())
 }
 
 /// Lists all available godbolt cpp targets
-#[poise::command(prefix_command, slash_command, broadcast_typing, category = "Godbolt")]
+#[poise::command(prefix_command, category = "Godbolt", broadcast_typing, track_edits)]
 pub async fn targets_cpp(ctx: Context<'_>) -> Result<(), Error> {
-    let mut targets = fetch_godbolt_cpp_targets(ctx.data()).await;
+    let mut targets = fetch_godbolt_cpp_metadata(ctx.data()).await.targets.clone();
 
     // Can't use sort_by_key because https://github.com/rust-lang/rust/issues/34162
     targets.sort_unstable_by(|lhs, rhs| {
         SemverRanking::from(&*lhs.semver).cmp(&SemverRanking::from(&*rhs.semver))
     });
 
-    ctx.send(|msg| {
-        msg.embed(|embed| {
-            embed.title("Godbolt CPP Targets").fields(targets.into_iter().map(|target| {
+    ctx.send(poise::CreateReply::default().embed(
+        serenity::CreateEmbed::default().title("Godbolt C++ Targets").fields(
+            targets.into_iter().map(|target| {
                 (
                     target.semver,
                     format!("{} (runs on {})", target.name, target.instruction_set),
                     true,
                 )
-            }))
-        })
-    })
+            }),
+        ),
+    ))
     .await?;
 
     Ok(())

@@ -1,6 +1,6 @@
 mod targets;
 use targets::compiler_id_and_flags;
-pub use targets::{targets_cpp, targets_rust, GodboltTargets};
+pub use targets::{targets_cpp, targets_rust, GodboltMetadata};
 
 use crate::{Context, Error};
 
@@ -20,13 +20,13 @@ struct GodboltOutputSegment {
 struct GodboltOutput(Vec<GodboltOutputSegment>);
 
 impl GodboltOutput {
-    pub fn full_with_ansi_codes_stripped(&self) -> Result<String, Error> {
+    pub fn concatenate(&self) -> String {
         let mut complete_text = String::new();
         for segment in self.0.iter() {
             complete_text.push_str(&segment.text);
             complete_text.push('\n');
         }
-        Ok(String::from_utf8(strip_ansi_escapes::strip(complete_text.trim())?)?)
+        complete_text
     }
 }
 
@@ -99,13 +99,13 @@ async fn run_cpp_source(
     // TODO: use the extract_relevant_lines utility to strip stderr nicely
     Ok(if response.code == 0 {
         Compilation::Success {
-            stdout: response.stdout.full_with_ansi_codes_stripped()?,
-            stderr: response.stderr.full_with_ansi_codes_stripped()?,
+            stdout: response.stdout.concatenate(),
+            stderr: response.stderr.concatenate(),
             asm: String::new(),
             llvm_mca: None,
         }
     } else {
-        Compilation::Error { stderr: response.build_result.stderr.full_with_ansi_codes_stripped()? }
+        Compilation::Error { stderr: response.build_result.stderr.concatenate() }
     })
 }
 
@@ -163,16 +163,16 @@ async fn compile_source(
     // TODO: use the extract_relevant_lines utility to strip stderr nicely
     Ok(if response.code == 0 {
         Compilation::Success {
-            asm: response.asm.full_with_ansi_codes_stripped()?,
-            stderr: response.stderr.full_with_ansi_codes_stripped()?,
+            asm: response.asm.concatenate(),
+            stderr: response.stderr.concatenate(),
             stdout: String::new(),
             llvm_mca: match response.tools.iter().find(|tool| tool.id == LLVM_MCA_TOOL_ID) {
-                Some(llvm_mca) => Some(llvm_mca.stdout.full_with_ansi_codes_stripped()?),
+                Some(llvm_mca) => Some(llvm_mca.stdout.concatenate()),
                 None => None,
             },
         }
     } else {
-        Compilation::Error { stderr: response.stderr.full_with_ansi_codes_stripped()? }
+        Compilation::Error { stderr: response.stderr.concatenate() }
     })
 }
 
@@ -264,7 +264,8 @@ async fn generic_godbolt(
             };
             text = match mode {
                 GodboltMode::Mca => {
-                    let llvm_mca = llvm_mca.ok_or("No llvm-mca result was sent by Godbolt")?;
+                    let llvm_mca = llvm_mca
+                        .ok_or(anyhow::anyhow!("No llvm-mca result was sent by Godbolt"))?;
                     strip_llvm_mca_result(&llvm_mca).to_owned()
                 },
                 GodboltMode::Asm | GodboltMode::LlvmIr => asm,
@@ -286,7 +287,7 @@ async fn generic_godbolt(
     if text.trim().is_empty() {
         ctx.say(format!("``` ```{}", note)).await?;
     } else {
-        super::reply_potentially_long_text(
+        crate::helpers::reply_potentially_long_text(
             ctx,
             &format!("```{}\n{}", lang, text),
             &format!("\n```{}", note),
@@ -362,7 +363,7 @@ pub async fn play_cpp(
     if text.trim().is_empty() {
         ctx.say(format!("``` ```{}", note)).await?;
     } else {
-        super::reply_potentially_long_text(
+        crate::helpers::reply_potentially_long_text(
             ctx,
             &format!("```{}\n{}", lang, text),
             &format!("\n```{}", note),
@@ -532,7 +533,7 @@ pub async fn asmdiff(
                 .await?
                 .stdout;
 
-            super::reply_potentially_long_text(
+            crate::helpers::reply_potentially_long_text(
                 ctx,
                 &format!("```diff\n{}", String::from_utf8_lossy(&diff)),
                 "```",
@@ -541,7 +542,7 @@ pub async fn asmdiff(
             .await?;
         },
         Err(stderr) => {
-            super::reply_potentially_long_text(
+            crate::helpers::reply_potentially_long_text(
                 ctx,
                 &format!("```{}\n{}", language, stderr),
                 "```",

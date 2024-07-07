@@ -1,6 +1,9 @@
+use anyhow::Error;
+
+use crate::types::Context;
+
 use super::api::*;
 use super::util::*;
-use crate::{Context, Error};
 
 /// Compile and use a procedural macro
 #[poise::command(
