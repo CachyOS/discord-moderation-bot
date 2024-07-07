@@ -103,7 +103,7 @@ pub async fn report(
     );
 
     let allowed_mentions =
-        CreateAllowedMentions::new().users(&[ctx.author().id]).roles(&[ctx.data().mod_role_id]);
+        CreateAllowedMentions::new().users([ctx.author().id]).roles([ctx.data().mod_role_id]);
     let builder =
         CreateMessage::new().content(thread_message_content).allowed_mentions(allowed_mentions);
     report_thread.send_message(&ctx, builder).await?;

@@ -166,10 +166,11 @@ async fn compile_source(
             asm: response.asm.concatenate(),
             stderr: response.stderr.concatenate(),
             stdout: String::new(),
-            llvm_mca: match response.tools.iter().find(|tool| tool.id == LLVM_MCA_TOOL_ID) {
-                Some(llvm_mca) => Some(llvm_mca.stdout.concatenate()),
-                None => None,
-            },
+            llvm_mca: response
+                .tools
+                .iter()
+                .find(|tool| tool.id == LLVM_MCA_TOOL_ID)
+                .map(|llvm_mca| llvm_mca.stdout.concatenate()),
         }
     } else {
         Compilation::Error { stderr: response.stderr.concatenate() }
@@ -526,7 +527,7 @@ pub async fn asmdiff(
             tokio::fs::write(&path2, asm2).await?;
 
             let diff = tokio::process::Command::new("git")
-                .args(&["diff", "--no-index"])
+                .args(["diff", "--no-index"])
                 .arg(&path1)
                 .arg(&path2)
                 .output()

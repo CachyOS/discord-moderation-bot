@@ -50,13 +50,6 @@ pub async fn find_custom_emoji(ctx: Context<'_>, emoji_name: &str) -> Option<ser
         .cloned()
 }
 
-pub async fn custom_emoji_code(ctx: Context<'_>, emoji_name: &str, fallback: char) -> String {
-    match find_custom_emoji(ctx, emoji_name).await {
-        Some(emoji) => emoji.to_string(),
-        None => fallback.to_string(),
-    }
-}
-
 /// In prefix commands, react with a custom emoji from the guild, or fallback to a default Unicode
 /// emoji.
 ///

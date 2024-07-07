@@ -62,10 +62,10 @@ fn env_var<T: std::str::FromStr>(name: &str) -> Result<T, Error>
 where
     T::Err: std::fmt::Display,
 {
-    Ok(std::env::var(name)
+    std::env::var(name)
         .map_err(|_| anyhow::anyhow!("Missing {}", name))?
         .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid {}: {}", name, e))?)
+        .map_err(|e| anyhow::anyhow!("Invalid {}: {}", name, e))
 }
 
 async fn app() -> Result<(), Error> {
@@ -171,7 +171,7 @@ async fn app() -> Result<(), Error> {
 
     let framework =
         poise::Framework::builder()
-            .setup(move |ctx, bot, framework| {
+            .setup(move |ctx, bot, _framework| {
                 Box::pin(async move {
                     let data = Data {
                         bot_user_id: bot.user.id,
@@ -180,7 +180,6 @@ async fn app() -> Result<(), Error> {
                         reports_channel,
                         bot_start_time: std::time::Instant::now(),
                         http: reqwest::Client::new(),
-                        database,
                         godbolt_rust_targets: std::sync::Mutex::new(
                             godbolt::GodboltMetadata::default(),
                         ),
@@ -207,7 +206,7 @@ async fn app() -> Result<(), Error> {
             .options(options)
             .build();
 
-    let _ = serenity::ClientBuilder::new(discord_token, intents)
+    serenity::ClientBuilder::new(discord_token, intents)
         .framework(framework)
         .await
         .map_err(|e| anyhow::anyhow!(e))?
@@ -217,66 +216,10 @@ async fn app() -> Result<(), Error> {
     Ok(())
 }
 
-/// Truncates the message with a given truncation message if the
-/// text is too long. "Too long" means, it either goes beyond Discord's 2000 char message limit,
-/// or if the text_body has too many lines.
-///
-/// Only `text_body` is truncated. `text_end` will always be appended at the end. This is useful
-/// for example for large code blocks. You will want to truncate the code block contents, but the
-/// finalizing triple backticks (` ` `) should always stay - that's what `text_end` is for.
-async fn trim_text(
-    mut text_body: &str,
-    text_end: &str,
-    truncation_msg_future: impl std::future::Future<Output = String>,
-) -> String {
-    const MAX_OUTPUT_LINES: usize = 45;
-
-    // Err with the future inside if no truncation occurs
-    let mut truncation_msg_maybe = Err(truncation_msg_future);
-
-    // check Discord's 2000 char message limit first
-    if text_body.len() + text_end.len() > 2000 {
-        let truncation_msg = match truncation_msg_maybe {
-            Ok(msg) => msg,
-            Err(future) => future.await,
-        };
-
-        // This is how long the text body may be at max to conform to Discord's limit
-        let available_space =
-            2000_usize.saturating_sub(text_end.len()).saturating_sub(truncation_msg.len());
-
-        let mut cut_off_point = available_space;
-        while !text_body.is_char_boundary(cut_off_point) {
-            cut_off_point -= 1;
-        }
-
-        text_body = &text_body[..cut_off_point];
-        truncation_msg_maybe = Ok(truncation_msg);
-    }
-
-    // check number of lines
-    let text_body = if text_body.lines().count() > MAX_OUTPUT_LINES {
-        truncation_msg_maybe = Ok(match truncation_msg_maybe {
-            Ok(msg) => msg,
-            Err(future) => future.await,
-        });
-
-        text_body.lines().take(MAX_OUTPUT_LINES).collect::<Vec<_>>().join("\n")
-    } else {
-        text_body.to_owned()
-    };
-
-    if let Ok(truncation_msg) = truncation_msg_maybe {
-        format!("{}{}{}", text_body, text_end, truncation_msg)
-    } else {
-        format!("{}{}", text_body, text_end)
-    }
-}
-
 async fn event_handler(
-    ctx: &serenity::Context,
+    _ctx: &serenity::Context,
     event: &serenity::FullEvent,
-    data: &Data,
+    _data: &Data,
 ) -> Result<(), Error> {
     log::debug!("Got an event in event handler: {:?}", event.snake_case_name());
 

@@ -2,7 +2,7 @@ use super::GodboltMode;
 
 use crate::types::{Context, Data};
 
-use anyhow::{anyhow, Error};
+use anyhow::Error;
 use poise::serenity_prelude as serenity;
 
 #[derive(Debug, Clone, serde::Deserialize)]

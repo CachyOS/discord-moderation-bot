@@ -194,15 +194,15 @@ pub fn maybe_wrapped(
     code: &str,
     result_handling: ResultHandling,
     unsf: bool,
-    pretty: bool,
+    _pretty: bool,
 ) -> Cow<str> {
     use syn::parse::Parse;
     use syn::*;
 
     // We use syn to check whether there is a main function.
     struct Inline {
-        attrs: Vec<Attribute>,
-        stmts: Vec<Stmt>,
+        _attrs: Vec<Attribute>,
+        _stmts: Vec<Stmt>,
     }
 
     impl Parse for Inline {
@@ -216,7 +216,7 @@ pub fn maybe_wrapped(
                     }
                 }
             }
-            Ok(Self { attrs, stmts })
+            Ok(Self { _attrs: attrs, _stmts: stmts })
         }
     }
 

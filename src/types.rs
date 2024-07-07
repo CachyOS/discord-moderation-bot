@@ -22,7 +22,6 @@ pub struct Data {
     pub reports_channel: Option<serenity::ChannelId>,
     pub bot_start_time: std::time::Instant,
     pub http: reqwest::Client,
-    pub database: sqlx::SqlitePool,
     pub godbolt_rust_targets: std::sync::Mutex<godbolt::GodboltMetadata>,
     pub godbolt_cpp_targets: std::sync::Mutex<godbolt::GodboltMetadata>,
     pub active_slowmodes:
