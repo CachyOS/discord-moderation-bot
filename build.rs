@@ -1,6 +1,7 @@
 use std::process::Command;
 
 fn main() {
+    println!("cargo:rerun-if-changed=.git/HEAD");
     if let Some(rev) = rev_parse() {
         println!("cargo:rustc-env=RUSTBOT_REV={}", rev);
     }
