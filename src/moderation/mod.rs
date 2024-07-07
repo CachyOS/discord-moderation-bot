@@ -31,7 +31,7 @@ pub async fn cleanup(
 
     let messages_to_delete = ctx
         .channel_id()
-        .messages(&ctx, serenity::GetMessages::new().limit(20))
+        .messages(&ctx, serenity::GetMessages::new().limit(50))
         .await?
         .into_iter()
         .filter(|msg| {
