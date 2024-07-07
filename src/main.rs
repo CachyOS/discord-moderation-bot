@@ -3,7 +3,6 @@ mod godbolt;
 mod misc;
 mod moderation;
 mod playground;
-mod prefixes;
 mod showcase;
 
 use poise::serenity_prelude as serenity;
